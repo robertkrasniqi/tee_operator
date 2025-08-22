@@ -1,28 +1,54 @@
 #define DUCKDB_EXTENSION_MAIN
 
 #include "tee_extension.hpp"
-#include "duckdb.hpp"
-#include "duckdb/common/exception.hpp"
-#include "duckdb/common/string_util.hpp"
-#include "duckdb/function/scalar_function.hpp"
-#include "duckdb/main/extension_util.hpp"
-#include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 
 namespace duckdb {
 
-inline void TeeScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &name_vector = args.data[0];
-	UnaryExecutor::Execute<string_t, string_t>(name_vector, result, args.size(), [&](string_t name) {
-		return StringVector::AddString(result, "Tee " + name.GetString() + " 🐥");
-	});
+static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p,
+                                      DataChunk &input, DataChunk &output) {
+	// TODO: currently we print the data for every chunk processed.
+	// We want to change this to only print once per table function call.
+	// This will require some state management to ensure we only print once at the end.
+	std::cout << "Tee Operator" << std::endl;
+
+	// Cast the bind data to TeeBindData
+	auto bind_data = data_p.bind_data->Cast<TeeBindData>();
+	auto renderer = BoxRenderer();
+
+	// Construct a new ColumnDataCollection that the renderer can scan
+	ColumnDataCollection scan(context.client, input.GetTypes());
+	scan.Append(input);
+
+	// Use the renderer to print the data
+	renderer.Print(context.client, bind_data.names, scan);
+
+	// Set a reference to the unchanged input chunk
+	output.Reference(input);
+
+	return OperatorResultType::NEED_MORE_INPUT;
 }
 
+static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
+                                        vector<LogicalType> &return_types, vector<string> &names) {
 
+	// Get the input table names from the bind input
+	names = input.input_table_names;
+
+	// We're only doing side effects here, so there's no need to modify the return types
+	return_types = input.input_table_types;
+
+	return make_uniq<TeeBindData>(names);
+}
 
 static void LoadInternal(DatabaseInstance &instance) {
-	// Register a scalar function
-	auto tee_scalar_function = ScalarFunction("tee", {LogicalType::VARCHAR}, LogicalType::VARCHAR, TeeScalarFun);
-	ExtensionUtil::RegisterFunction(instance, tee_scalar_function);
+	// Create a new table function
+	auto tee_function = TableFunction("tee", {LogicalType::TABLE}, nullptr, TeeBind);
+
+	// Set TeeTableFun as the in_out_function for the table function
+	tee_function.in_out_function = TeeTableFun;
+
+	// Register the table function within the database instance
+	ExtensionUtil::RegisterFunction(instance, tee_function);
 }
 
 void TeeExtension::Load(DuckDB &db) {

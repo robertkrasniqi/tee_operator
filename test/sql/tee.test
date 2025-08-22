@@ -4,16 +4,15 @@
 
 # Before we load the extension, this will fail
 statement error
-SELECT quack('Sam');
+SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;
 ----
-Catalog Error: Scalar Function with name quack does not exist!
+Catalog Error: Table Function with name tee does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
-require quack
+require tee
 
 # Confirm the extension works
-query I
-SELECT quack('Sam');
+query II
+SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;
 ----
-Quack Sam 🐥
 
