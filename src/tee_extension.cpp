@@ -4,50 +4,77 @@
 
 namespace duckdb {
 
-static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p,
-                                      DataChunk &input, DataChunk &output) {
-	// TODO: currently we print the data for every chunk processed.
-	// We want to change this to only print once per table function call.
-	// This will require some state management to ensure we only print once at the end.
-	std::cout << "Tee Operator" << std::endl;
+// this function is called once per chunk
+static OperatorResultType TeeTableFun(ExecutionContext &context,
+                                      TableFunctionInput &data_p,
+                                      DataChunk &input,
+                                      DataChunk &output) {
+	// access to the global state object
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
-	// Cast the bind data to TeeBindData
-	auto bind_data = data_p.bind_data->Cast<TeeBindData>();
-	auto renderer = BoxRenderer();
+	// append the current chunk to the global buffer
+	global_state.buffered.Append(input);
 
-	// Construct a new ColumnDataCollection that the renderer can scan
-	ColumnDataCollection scan(context.client, input.GetTypes());
-	scan.Append(input);
-
-	// Use the renderer to print the data
-	renderer.Print(context.client, bind_data.names, scan);
-
-	// Set a reference to the unchanged input chunk
+	// pass through the input chunk unchanged to the output
 	output.Reference(input);
 
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 
-static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
-                                        vector<LogicalType> &return_types, vector<string> &names) {
+// this function is called once at the end
+// prints our bufferd data
+static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context,
+                                              TableFunctionInput &data_p,
+                                              DataChunk &output) {
+												
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
-	// Get the input table names from the bind input
-	names = input.input_table_names;
+	// prints only once
+	if (!global_state.printed) {
+		std::cout << "Tee Operator" << std::endl;
 
-	// We're only doing side effects here, so there's no need to modify the return types
-	return_types = input.input_table_types;
+		auto renderer = BoxRenderer();
 
-	return make_uniq<TeeBindData>(names);
+		renderer.Print(context.client, global_state.names, global_state.buffered);
+
+		global_state.printed = true;
+	}
+	return OperatorFinalizeResultType::FINISHED;
 }
 
+// this function is called once at the start of execution to create the global state
+static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context,
+                                                          TableFunctionInitInput &input) {
+	// get the bind data
+	auto &bind_data = input.bind_data->Cast<TeeBindData>();
+
+	// initialize global state with both types and names
+	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
+}
+
+// runs when a query runs, decides the schema of the table function output
+static unique_ptr<FunctionData> TeeBind(ClientContext &context,
+                                        TableFunctionBindInput &input,
+                                        vector<LogicalType> &return_types,
+                                        vector<string> &names) {
+	names = input.input_table_names;
+	return_types = input.input_table_types;
+
+	// returns a bind data object
+	return make_uniq<TeeBindData>(names, return_types);
+}
+
+
+// called when the extension is loaded
+// registers the tee table function
 static void LoadInternal(DatabaseInstance &instance) {
-	// Create a new table function
+
 	auto tee_function = TableFunction("tee", {LogicalType::TABLE}, nullptr, TeeBind);
 
-	// Set TeeTableFun as the in_out_function for the table function
-	tee_function.in_out_function = TeeTableFun;
+	tee_function.init_global = TeeInitGlobal; // global state init
+	tee_function.in_out_function = TeeTableFun; // per chunk
+	tee_function.in_out_function_final = TeeFinalize; // end
 
-	// Register the table function within the database instance
 	ExtensionUtil::RegisterFunction(instance, tee_function);
 }
 
