@@ -1,8 +1,54 @@
 #define DUCKDB_EXTENSION_MAIN
 
 #include "tee_extension.hpp"
+#include "duckdb/parser/parser_extension.hpp"
+
 
 namespace duckdb {
+
+
+// want to make tee(select * ..) possible
+// dummy implementation of parser // set up entry
+// maybe moving all of this to another file
+struct TeeParseData : public ParserExtensionParseData {
+	unique_ptr<ParserExtensionParseData> Copy() const override {
+		return make_uniq<TeeParseData>();
+	}
+	string ToString() const override {
+		return "empty";
+	}
+};
+
+// dummy parser info
+struct TeeParserInfo : public ParserExtensionInfo {
+};
+
+class TeeParserExtension {
+public:
+	static ParserExtensionParseResult ParseFunction(ParserExtensionInfo *info, const string &query) {
+		// implement parse logic somewhere here I think
+		std::cout << "Debug: Should land here when we try tea(.." << "\n";
+		return ParserExtensionParseResult();
+	}
+
+	static ParserExtensionPlanResult PlanFunction(ParserExtensionInfo *info, ClientContext &context,
+										  unique_ptr<ParserExtensionParseData> parse_data) {
+		ParserExtensionPlanResult result;
+		// no plan by now
+		return result;
+	}
+};
+
+// load parser
+static void LoadParserExtension(DuckDB &db) {
+	ParserExtension tee_parser;
+
+	tee_parser.parser_info = make_shared_ptr<TeeParserInfo>();
+	tee_parser.parse_function = TeeParserExtension::ParseFunction;
+	tee_parser.plan_function = TeeParserExtension::PlanFunction;
+
+	db.instance->config.parser_extensions.push_back(tee_parser);
+}
 
 // this function is called once per chunk
 static OperatorResultType TeeTableFun(ExecutionContext &context,
@@ -26,7 +72,7 @@ static OperatorResultType TeeTableFun(ExecutionContext &context,
 static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context,
                                               TableFunctionInput &data_p,
                                               DataChunk &output) {
-												
+
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
 	// prints only once
@@ -80,7 +126,10 @@ static void LoadInternal(DatabaseInstance &instance) {
 
 void TeeExtension::Load(DuckDB &db) {
 	LoadInternal(*db.instance);
+	// parser entry
+	LoadParserExtension(db);
 }
+
 std::string TeeExtension::Name() {
 	return "tee";
 }
@@ -99,6 +148,7 @@ extern "C" {
 
 DUCKDB_EXTENSION_API void tee_init(duckdb::DatabaseInstance &db) {
 	duckdb::DuckDB db_wrapper(db);
+	// look in autocomplete extension how they solved this
 	db_wrapper.LoadExtension<duckdb::TeeExtension>();
 }
 
