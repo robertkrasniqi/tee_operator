@@ -1,7 +1,4 @@
-#define DUCKDB_EXTENSION_MAIN
-
 #include "tee_extension.hpp"
-#include "duckdb/parser/parser_extension.hpp"
 
 
 namespace duckdb {
@@ -40,7 +37,7 @@ public:
 };
 
 // load parser
-static void LoadParserExtension(DuckDB &db) {
+static void RegisterParserExtension(DuckDB &db) {
 	ParserExtension tee_parser;
 
 	tee_parser.parser_info = make_shared_ptr<TeeParserInfo>();
@@ -112,22 +109,24 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context,
 
 
 // called when the extension is loaded
-// registers the tee table function
-static void LoadInternal(DatabaseInstance &instance) {
+// registers the tee table function and the parser extension
+static void LoadInternal(ExtensionLoader &loader) {
 
-	auto tee_function = TableFunction("tee", {LogicalType::TABLE}, nullptr, TeeBind);
+	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, TeeBind);
 
-	tee_function.init_global = TeeInitGlobal; // global state init
-	tee_function.in_out_function = TeeTableFun; // per chunk
-	tee_function.in_out_function_final = TeeFinalize; // end
+	tee_function.init_global = TeeInitGlobal;
+	tee_function.in_out_function = TeeTableFun;
+	tee_function.in_out_function_final = TeeFinalize;
 
-	ExtensionUtil::RegisterFunction(instance, tee_function);
+	loader.RegisterFunction(tee_function);
+
+	auto &db = loader.GetDatabaseInstance();
+	DuckDB db_wrapper(db);
+	RegisterParserExtension(db_wrapper);
 }
 
-void TeeExtension::Load(DuckDB &db) {
-	LoadInternal(*db.instance);
-	// parser entry
-	LoadParserExtension(db);
+void TeeExtension::Load(ExtensionLoader &loader) {
+	LoadInternal(loader);
 }
 
 std::string TeeExtension::Name() {
@@ -146,17 +145,7 @@ std::string TeeExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void tee_init(duckdb::DatabaseInstance &db) {
-	duckdb::DuckDB db_wrapper(db);
-	// look in autocomplete extension how they solved this
-	db_wrapper.LoadExtension<duckdb::TeeExtension>();
-}
-
-DUCKDB_EXTENSION_API const char *tee_version() {
-	return duckdb::DuckDB::LibraryVersion();
+DUCKDB_CPP_EXTENSION_ENTRY(tee, loader) {
+	duckdb::LoadInternal(loader);
 }
 }
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif

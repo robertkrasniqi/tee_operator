@@ -1,7 +1,7 @@
 #pragma once
 
 #include "duckdb.hpp"
-#include "duckdb/main/extension_util.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/box_renderer.hpp"
 
 namespace duckdb {
@@ -40,7 +40,7 @@ struct TeeGlobalState : public GlobalTableFunctionState {
 class TeeExtension : public Extension {
 public:
 	// load() is called when the extension is installed into a database
-	void Load(DuckDB &db) override;
+	void Load(ExtensionLoader &loader) override;
 	std::string Name() override;
 	std::string Version() const override;
 };
