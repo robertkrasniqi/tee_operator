@@ -12,7 +12,7 @@ struct TeeParseData : public ParserExtensionParseData {
 		return make_uniq<TeeParseData>();
 	}
 	string ToString() const override {
-		return "empty";
+		return "";
 	}
 };
 
