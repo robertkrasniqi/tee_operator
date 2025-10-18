@@ -1,4 +1,5 @@
 #include "tee_extension.hpp"
+#include "tee_parser.hpp"
 
 
 namespace duckdb {
@@ -78,7 +79,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	auto &db = loader.GetDatabaseInstance();
 	DuckDB db_wrapper(db);
-	TeeParser::RegisterParserExtension(db_wrapper);
+	RegisterParserExtension(db_wrapper);
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
