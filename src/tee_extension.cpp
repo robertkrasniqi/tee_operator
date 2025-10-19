@@ -83,8 +83,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_parser.plan_function = TeeParserExtension::PlanFunction;
 
 	auto &db = loader.GetDatabaseInstance();
-	DuckDB db_wrapper(db);
-	db_wrapper.instance->config.parser_extensions.push_back(tee_parser);
+	auto &config = DBConfig::GetConfig(db);
+
+	config.options.allow_parser_override_extension = "fallback";
+	config.parser_extensions.push_back(tee_parser);
+
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
