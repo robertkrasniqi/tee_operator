@@ -1,6 +1,7 @@
 #include "include/tee_parser.hpp"
 #include "include/tee_extension.hpp"
 #include "duckdb/parser/parser.hpp"
+#include "duckdb/common/string_util.hpp"
 
 
 namespace duckdb {
@@ -15,24 +16,62 @@ struct TeeParseData : public ParserExtensionParseData {
 	}
 };
 
-// dont work yet
-// This function gets registered at the beginning but is never called again
+static string CustomTeeParser(const string &query) {
+	// TODO: Implement the function
+	// our example test query:
+	// SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
+
+	// I thought about some hardcoded replacement here, something like regex pattern matching
+	// I am aware that sql syntax can be very complicated, but if it´s possible to solve this problem with only one function
+	// it should be the best approach
+	return query;
+}
+
+//! Is called for parsing
+//! Makes it possible to use a custom parser
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
-	std::cout << "Reached ParserOverrideFunction!" << "\n";
-	if (true) {
-		auto modified_query = "SELECT * FROM tee((SELECT * FROM RANGE (10)));";
+
+	std::cout << "Debug: We are inside the ParserOverrideFunction" << "\n";
+
+	// no "tee" in query -> pass back to default parser
+	if (!StringUtil::Contains(query, "tee")) {
+		return ParserOverrideResult();
+	}
+
+	// This is for testing only!
+	//
+	// Run query:
+	// SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
+	//
+	// Yet this is hardcoded. It is only intended to demonstrate that
+	// this is a way how we can manipulate queries on the parser level
+	if (query == "SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;") {
+		string correct_query = "SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;";
+
 		Parser parser;
-		parser.ParseQuery(modified_query);
+		parser.ParseQuery(correct_query);
+
 		auto &statements = parser.statements;
 		vector<unique_ptr<SQLStatement>> result_statements;
 		for (auto &stmt : statements) {
 			result_statements.push_back(std::move(stmt));
 		}
 		return ParserOverrideResult(std::move(result_statements));
-
 	}
-	ParserOverrideResult result;
-	return result;
+
+	// call own parser
+	// just return the input by now
+	string modified_query = CustomTeeParser(query);
+
+	Parser parser;
+	parser.ParseQuery(modified_query);
+
+	auto &statements = parser.statements;
+	vector<unique_ptr<SQLStatement>> result_statements;
+	for (auto &stmt : statements) {
+		result_statements.push_back(std::move(stmt));
+	}
+	return ParserOverrideResult(std::move(result_statements));
 }
 
 //! ParserFunction is called by DuckDB for every query string
@@ -41,7 +80,6 @@ ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo
 	// Debugging
 	std::cout << "Query at TeeParserExtension::ParseFunction: " << query << "\n" << "\n";
 
-	// TODO: Implement parse logic here
 	ParserExtensionParseResult result;
 	result.parse_data = make_uniq<TeeParseData>();
 	// return parse result
