@@ -77,9 +77,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(tee_function);
 
+	ParserExtension tee_parser {};
+	tee_parser.parser_override = TeeParserExtension::ParserOverrideFunction;
+	tee_parser.parse_function = TeeParserExtension::ParseFunction;
+	tee_parser.plan_function = TeeParserExtension::PlanFunction;
+
 	auto &db = loader.GetDatabaseInstance();
 	DuckDB db_wrapper(db);
-	RegisterParserExtension(db_wrapper);
+	db_wrapper.instance->config.parser_extensions.push_back(tee_parser);
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {

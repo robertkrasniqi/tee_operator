@@ -19,7 +19,6 @@ public:
 												  unique_ptr<ParserExtensionParseData> parse_data);
 };
 
-void RegisterParserExtension(DuckDB &db);
 
 };
 

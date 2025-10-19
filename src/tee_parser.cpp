@@ -18,6 +18,7 @@ struct TeeParseData : public ParserExtensionParseData {
 // dont work yet
 // This function gets registered at the beginning but is never called again
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
+	std::cout << "Reached ParserOverrideFunction!" << "\n";
 	if (true) {
 		auto modified_query = "SELECT * FROM tee((SELECT * FROM RANGE (10)));";
 		Parser parser;
@@ -53,19 +54,6 @@ ParserExtensionPlanResult TeeParserExtension::PlanFunction(ParserExtensionInfo *
 	// TODO: Implement plan logic. (for logical plan I guess)
 	ParserExtensionPlanResult result;
 	return result;
-}
-
-void RegisterParserExtension(DuckDB &db) {
-	TeeParserExtension tee_parser;
-
-	tee_parser.parser_override = TeeParserExtension::ParserOverrideFunction;
-	tee_parser.parser_info = make_shared_ptr<TeeParserInfo>();
-	tee_parser.parse_function = TeeParserExtension::ParseFunction;
-	tee_parser.plan_function = TeeParserExtension::PlanFunction;
-
-	db.instance->config.parser_extensions.push_back(tee_parser);
-
-	std::cout << "\n" << "Debugging: RegisterParserExtension was called." << "\n";
 }
 
 };
