@@ -1,5 +1,6 @@
 #include "include/tee_parser.hpp"
 #include "include/tee_extension.hpp"
+#include "duckdb/parser/parser.hpp"
 
 
 namespace duckdb {
@@ -13,6 +14,25 @@ struct TeeParseData : public ParserExtensionParseData {
 		return "Parsed Data";
 	}
 };
+
+// dont work yet
+// This function gets registered at the beginning but is never called again
+ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
+	if (true) {
+		auto modified_query = "SELECT * FROM tee((SELECT * FROM RANGE (10)));";
+		Parser parser;
+		parser.ParseQuery(modified_query);
+		auto &statements = parser.statements;
+		vector<unique_ptr<SQLStatement>> result_statements;
+		for (auto &stmt : statements) {
+			result_statements.push_back(std::move(stmt));
+		}
+		return ParserOverrideResult(std::move(result_statements));
+
+	}
+	ParserOverrideResult result;
+	return result;
+}
 
 //! ParserFunction is called by DuckDB for every query string
 //! After that gets passed back to regular parser
@@ -36,8 +56,9 @@ ParserExtensionPlanResult TeeParserExtension::PlanFunction(ParserExtensionInfo *
 }
 
 void RegisterParserExtension(DuckDB &db) {
-	ParserExtension tee_parser;
+	TeeParserExtension tee_parser;
 
+	tee_parser.parser_override = TeeParserExtension::ParserOverrideFunction;
 	tee_parser.parser_info = make_shared_ptr<TeeParserInfo>();
 	tee_parser.parse_function = TeeParserExtension::ParseFunction;
 	tee_parser.plan_function = TeeParserExtension::PlanFunction;

@@ -16,3 +16,9 @@ query II
 SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;
 ----
 
+# Should fail
+statement error
+SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
+----
+Parser Error: syntax error at or near "SELECT"
+
