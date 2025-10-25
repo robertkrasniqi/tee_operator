@@ -18,12 +18,6 @@ struct TeeParseData : public ParserExtensionParseData {
 
 static string CustomTeeParser(const string &query) {
 	// TODO: Implement the function
-	// our example test query:
-	// SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
-
-	// I thought about some hardcoded replacement here, something like regex pattern matching
-	// I am aware that sql syntax can be very complicated, but if it´s possible to solve this problem with only one function
-	// it should be the best approach
 	return query;
 }
 
@@ -33,56 +27,48 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 
 	std::cout << "Debug: We are inside the ParserOverrideFunction" << "\n";
 
-	// no "tee" in query -> pass back to default parser
+	// no "tee" in query, return to default parser
 	if (!StringUtil::Contains(query, "tee")) {
 		return ParserOverrideResult();
-	}
-
-	// This is for testing only!
-	//
-	// Run query:
-	// SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
-	//
-	// Yet this is hardcoded. It is only intended to demonstrate that
-	// this is a way how we can manipulate queries on the parser level
-	if (query == "SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;") {
-		string correct_query = "SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;";
-
-		Parser parser;
-		parser.ParseQuery(correct_query);
-
-		auto &statements = parser.statements;
-		vector<unique_ptr<SQLStatement>> result_statements;
-		for (auto &stmt : statements) {
-			result_statements.push_back(std::move(stmt));
-		}
-		return ParserOverrideResult(std::move(result_statements));
 	}
 
 	// call own parser
 	// just return the input by now
 	string modified_query = CustomTeeParser(query);
 
-	Parser parser;
-	parser.ParseQuery(modified_query);
+	// maybe change the try logic later
+	try {
+		Parser parser;
+		parser.ParseQuery(modified_query);
 
-	auto &statements = parser.statements;
-	vector<unique_ptr<SQLStatement>> result_statements;
-	for (auto &stmt : statements) {
-		result_statements.push_back(std::move(stmt));
+		auto &statements = parser.statements;
+		vector<unique_ptr<SQLStatement>> result_statements;
+		for (auto &stmt : statements) {
+			result_statements.push_back(std::move(stmt));
+		}
+
+		// This occurs for a valid query input
+		std::cout << "Debug: Parsing successful in TeeParserExtension.\n";
+
+		return ParserOverrideResult(std::move(result_statements));
 	}
-	return ParserOverrideResult(std::move(result_statements));
+	catch (ParserException &ex) {
+		std::cout << "Debug: Caught ParserException in TeeParserExtension!\n";
+		// what() prints additional information, e.g. the position where the error is
+		// Later I want to parse the things before the error, and handle (parse correct) the things from the error on
+		std::cout << "Exception message:\n" << ex.what() << "\n";
+		// GetStackTrace() prints Stack
+		std::cout << "Stacktrace:\n" << Exception::GetStackTrace() <<  "\n";
+
+		return ParserOverrideResult();
+	}
 }
 
-//! ParserFunction is called by DuckDB for every query string
-//! After that gets passed back to regular parser
-ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo *info, const string &query) {
-	// Debugging
-	std::cout << "Query at TeeParserExtension::ParseFunction: " << query << "\n" << "\n";
 
+ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo *info, const string &query) {
+	// Dummyfunction by now
 	ParserExtensionParseResult result;
 	result.parse_data = make_uniq<TeeParseData>();
-	// return parse result
 	return result;
 }
 
