@@ -25,8 +25,6 @@ static string CustomTeeParser(const string &query) {
 //! Makes it possible to use a custom parser
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
 
-	std::cout << "Debug: We are inside the ParserOverrideFunction" << "\n";
-
 	// no "tee" in query, return to default parser
 	if (!StringUtil::Contains(query, "tee")) {
 		return ParserOverrideResult();
@@ -53,12 +51,27 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 		return ParserOverrideResult(std::move(result_statements));
 	}
 	catch (ParserException &ex) {
-		std::cout << "Debug: Caught ParserException in TeeParserExtension!\n";
 		// what() prints additional information, e.g. the position where the error is
 		// Later I want to parse the things before the error, and handle (parse correct) the things from the error on
 		std::cout << "Exception message:\n" << ex.what() << "\n";
-		// GetStackTrace() prints Stack
-		std::cout << "Stacktrace:\n" << Exception::GetStackTrace() <<  "\n";
+
+		string errorMessage = ex.what();
+
+		/*  search for position in errorMessage and extract the index
+		 * {"exception_type":"Parser","exception_message":"syntax error at or near \"SELECT\"","position":"18","error_subtype":"SYNTAX_ERROR"}
+		 *																								  ^  ^
+		*/
+
+		string leftIndexStr = "\"position\":\"";
+		size_t leftPartIdx = errorMessage.find(leftIndexStr) + leftIndexStr.length();
+		size_t rightPartIdx = errorMessage.find(",\"error_subtype");
+
+		string idxErrorTemp = errorMessage.substr(leftPartIdx, (rightPartIdx - 1)  - leftPartIdx);
+
+		// convert string to int
+		int64_t idxParseError = std::stoll(idxErrorTemp);
+		std::cout << idxParseError << "\n";
+		CustomTeeParser(query.substr(idxParseError, query.size()));
 
 		return ParserOverrideResult();
 	}

@@ -6,13 +6,10 @@
 
 namespace duckdb {
 
-// tbd
 struct TeeParserInfo : public ParserExtensionInfo {};
 
 class TeeParserExtension : public ParserExtension {
 public:
-	// Try Plan B later with this contructor
-	//TeeParserExtension();
 	static ParserOverrideResult ParserOverrideFunction(ParserExtensionInfo *info, const string &query);
 	static ParserExtensionParseResult ParseFunction(ParserExtensionInfo *info, const string &query);
 	static ParserExtensionPlanResult PlanFunction(ParserExtensionInfo *info, ClientContext &context,
