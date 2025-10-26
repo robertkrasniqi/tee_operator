@@ -17,39 +17,45 @@ struct TeeParseData : public ParserExtensionParseData {
 };
 
 static string CustomTeeParser(const string &query) {
+	// TODO´s
+	// -- handle multiple tee calls
+	// -- edge cases, invalid input ..
+	// -- handel spaces, e.g. "tee ("
+
 	// for later we want to know how many function calls we have
 	u_int8_t tee_occurs = 0;
 
-	string result_query = query;
+	string result_query = StringUtil::Lower(query);
+
+	string pattern = "tee(";
 
 	// for now check for tee(
 	// but should check for tee( && not tee((
-	int pos_tee = result_query.find("tee(");
-	result_query.insert(pos_tee + 4, "(");
+	int pos_tee = result_query.find(pattern);
+	result_query.insert(pos_tee + pattern.size(), "(");
 
-	int l_paranthese = 1;
-	int r_paranthese = 0;
 
-	for (int i = pos_tee + 5; i < result_query.size(); i++) {
-		if (result_query.at(i) == '(') {
-			l_paranthese++;
+	std::stack<char> paranthese_stack;
+
+	paranthese_stack.push('(');
+
+	for (idx_t i = pos_tee + pattern.size() + 1; i < result_query.size(); i++) {
+		if (result_query[i] == '(') {
+			paranthese_stack.push('(');
 		}
-		if (result_query.at(i) == ')') {
-			r_paranthese++;
+		if (result_query[i] == ')') {
+			paranthese_stack.pop();
 		}
-		if (l_paranthese == r_paranthese ) {
-			if ((i + 1) == result_query.size()) {
+		if (paranthese_stack.empty()) {
+			if (i + 1 == result_query.size()) {
 				result_query.push_back(')');
 				break;
 			}
 			result_query.insert(i + 1, ")");
 			break;
 		}
-
 	}
 	return result_query;
-
-
 }
 
 //! Is called for parsing
@@ -57,12 +63,11 @@ static string CustomTeeParser(const string &query) {
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
 
 	// no "tee" in query, return to default parser
-	if (!StringUtil::Contains(query, "tee")) {
+	if (!StringUtil::Contains(StringUtil::Lower(query), "tee")) {
 		return ParserOverrideResult();
 	}
 
 	// call own parser
-	// just return the input by now
 	string modified_query = CustomTeeParser(query);
 
 	// maybe change the try logic later
