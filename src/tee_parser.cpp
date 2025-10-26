@@ -17,8 +17,39 @@ struct TeeParseData : public ParserExtensionParseData {
 };
 
 static string CustomTeeParser(const string &query) {
-	// TODO: Implement the function
-	return query;
+	// for later we want to know how many function calls we have
+	u_int8_t tee_occurs = 0;
+
+	string result_query = query;
+
+	// for now check for tee(
+	// but should check for tee( && not tee((
+	int pos_tee = result_query.find("tee(");
+	result_query.insert(pos_tee + 4, "(");
+
+	int l_paranthese = 1;
+	int r_paranthese = 0;
+
+	for (int i = pos_tee + 5; i < result_query.size(); i++) {
+		if (result_query.at(i) == '(') {
+			l_paranthese++;
+		}
+		if (result_query.at(i) == ')') {
+			r_paranthese++;
+		}
+		if (l_paranthese == r_paranthese ) {
+			if ((i + 1) == result_query.size()) {
+				result_query.push_back(')');
+				break;
+			}
+			result_query.insert(i + 1, ")");
+			break;
+		}
+
+	}
+	return result_query;
+
+
 }
 
 //! Is called for parsing
