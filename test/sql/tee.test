@@ -16,9 +16,44 @@ query II
 SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;
 ----
 
-# Should fail
-statement error
+# Only 1 pair of parentheses should work
+query II
 SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
 ----
-Parser Error: syntax error at or near "SELECT"
+
+# Should work
+query I
+SELECT * FROM tee(SELECT * FROM range(3)) _(x);
+----
+0
+1
+2
+
+# SHould work
+query I
+SELECT x FROM tee((SELECT * FROM range(10))) _(x) WHERE x >= 8;
+----
+8
+9
+
+# Should work
+query I
+SELECT x*2 FROM tee((SELECT * FROM range(3))) _(x);
+----
+0
+2
+4
+
+# Should work
+query I
+SELECT sum(x) FROM tee((SELECT * FROM range(5))) _(x);
+----
+10
+
+
+# Should work
+query I
+SELECT * FROM tee((SELECT * FROM range(0))) _(x);
+----
+
 
