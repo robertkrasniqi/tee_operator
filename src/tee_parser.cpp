@@ -20,41 +20,53 @@ static string CustomTeeParser(const string &query) {
 	// TODO´s
 	// -- handle multiple tee calls
 	// -- edge cases, invalid input ..
-	// -- handel spaces, e.g. "tee ("
 
 	// for later we want to know how many function calls we have
 	u_int8_t tee_occurs = 0;
 
 	string result_query = StringUtil::Lower(query);
 
-	string pattern = "tee(";
+	// this is the index we start at for each new tee call
+	idx_t pos_begin = 0;
 
-	// for now check for tee(
-	// but should check for tee( && not tee((
-	int pos_tee = result_query.find(pattern);
-	result_query.insert(pos_tee + pattern.size(), "(");
+	while (true) {
+		idx_t pos_tee = result_query.find("tee", pos_begin);
 
-
-	std::stack<char> paranthese_stack;
-
-	paranthese_stack.push('(');
-
-	for (idx_t i = pos_tee + pattern.size() + 1; i < result_query.size(); i++) {
-		if (result_query[i] == '(') {
-			paranthese_stack.push('(');
-		}
-		if (result_query[i] == ')') {
-			paranthese_stack.pop();
-		}
-		if (paranthese_stack.empty()) {
-			if (i + 1 == result_query.size()) {
-				result_query.push_back(')');
-				break;
-			}
-			result_query.insert(i + 1, ")");
+		// no tee´s anymore -> done
+		if (pos_tee == string::npos) {
 			break;
 		}
+
+		// add 3 positions after we found tee
+		idx_t pos_curr = pos_tee + 3;
+
+		// skip spaces till first no space character
+		while (pos_curr < result_query.size() && StringUtil::CharacterIsSpace(result_query[pos_curr])) {
+			pos_curr++;
+		}
+
+		result_query.insert(pos_curr, "(");
+
+		std::stack<char> paranthese_stack;
+		paranthese_stack.push('(');
+		// Use stack to find place where last closing paranthese belongs to
+		for (idx_t i = pos_curr + 2; i < result_query.size(); i++) {
+			if (result_query[i] == '(') {
+				paranthese_stack.push('(');
+			} else if (result_query[i] == ')') {
+				paranthese_stack.pop();
+				if (i + 1 == result_query.size()) {
+					result_query.push_back(')');
+				} else {
+					result_query.insert(i + 1, ")");
+				}
+				break;
+			}
+		}
+		tee_occurs++;
+		pos_begin = pos_curr;
 	}
+	std::cout << "Debug: this is the returned Query: \n" << result_query << "\n";
 	return result_query;
 }
 
