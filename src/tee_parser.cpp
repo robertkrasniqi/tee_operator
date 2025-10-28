@@ -18,11 +18,7 @@ struct TeeParseData : public ParserExtensionParseData {
 
 static string CustomTeeParser(const string &query) {
 	// TODO´s
-	// -- handle multiple tee calls
 	// -- edge cases, invalid input ..
-
-	// for later we want to know how many function calls we have
-	u_int8_t tee_occurs = 0;
 
 	string result_query = StringUtil::Lower(query);
 
@@ -50,20 +46,19 @@ static string CustomTeeParser(const string &query) {
 		std::stack<char> paranthese_stack;
 		paranthese_stack.push('(');
 		// Use stack to find place where last closing paranthese belongs to
-		for (idx_t i = pos_curr + 2; i < result_query.size(); i++) {
-			if (result_query[i] == '(') {
+		for (pos_curr = pos_curr + 2; pos_curr < result_query.size(); pos_curr++) {
+			if (result_query[pos_curr] == '(') {
 				paranthese_stack.push('(');
-			} else if (result_query[i] == ')') {
+			} else if (result_query[pos_curr] == ')') {
 				paranthese_stack.pop();
-				if (i + 1 == result_query.size()) {
+				if (pos_curr + 1 == result_query.size()) {
 					result_query.push_back(')');
 				} else {
-					result_query.insert(i + 1, ")");
+					result_query.insert(pos_curr + 1, ")");
 				}
 				break;
 			}
 		}
-		tee_occurs++;
 		pos_begin = pos_curr;
 	}
 	std::cout << "Debug: this is the returned Query: \n" << result_query << "\n";
