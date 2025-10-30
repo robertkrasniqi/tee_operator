@@ -70,7 +70,7 @@ static string CustomTeeParser(const string &query) {
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
 
 	// no "tee" in query, return to default parser
-	if (!StringUtil::Contains(StringUtil::Lower(query), "tee")) {
+	if (!StringUtil::Contains(StringUtil::Lower(query), " tee")) {
 		return ParserOverrideResult();
 	}
 

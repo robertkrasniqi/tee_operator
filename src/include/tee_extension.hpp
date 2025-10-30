@@ -23,6 +23,24 @@ struct TeeBindData : public FunctionData {
 	}
 };
 
+struct TeeBindDataS : public FunctionData {
+	TeeBindDataS(vector<string> names_p, vector<LogicalType> types_p, string symbol_p)
+		: names(std::move(names_p)), types(std::move(types_p)), symbol(std::move(symbol_p)) {}
+
+	vector<string> names;
+	vector<LogicalType> types;
+	string symbol;
+
+	unique_ptr<FunctionData> Copy() const override {
+		return make_uniq<TeeBindDataS>(names, types, symbol);
+	}
+
+	bool Equals(const FunctionData &other_p) const override {
+		auto &other = other_p.Cast<TeeBindDataS>();
+		return names == other.names && types == other.types && symbol == other.symbol;
+	}
+};
+
 
 struct TeeGlobalState : public GlobalTableFunctionState {
 	TeeGlobalState(ClientContext &context,
