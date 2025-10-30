@@ -92,11 +92,24 @@ static unique_ptr<FunctionData> TeeBindS(ClientContext &context,
 										vector<string> &names) {
 	names = input.input_table_names;
 	return_types = input.input_table_types;
-	string symbols = input.inputs[1].GetValue<string>();
 
+	static idx_t counter = 0;
+
+	string symbol;
+
+	if (input.inputs.size() > 2) {
+		throw BinderException("s_tee expects only one string argument.");
+	}
+
+	if (input.inputs.size() == 2) {
+		symbol = input.inputs[1].GetValue<string>();
+	} else {
+		++counter;
+		symbol = "No " + std::to_string(counter) + ".";
+	}
 
 	// returns a bind data object
-	return make_uniq<TeeBindDataS>(names, return_types, symbols);
+	return make_uniq<TeeBindDataS>(names, return_types, symbol);
 }
 
 
@@ -110,7 +123,15 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.in_out_function_final = TeeFinalize;
 	loader.RegisterFunction(tee_function);
 
-	TableFunction tee_symbol("s_tee", {LogicalType::TABLE, LogicalType::VARCHAR}, nullptr, TeeBindS);
+	TableFunction tee_symbol("s_tee", {LogicalType::TABLE}, nullptr, TeeBindS);
+	// We want a default string argument, DuckDB doesn't allow overloading when having TABLE parameter:
+	// INTERNAL Error:
+	// Function "s_tee" has a TABLE parameter, and multiple function overloads - this is not supported
+
+	// Workaround:
+	// Use varargs, allowing us to have 0 to 1 string arguments. If we have more than one, we throw
+	// an exception in binder phase
+	tee_symbol.varargs = LogicalType::VARCHAR;
 	tee_symbol.init_global = TeeInitGlobal;
 	tee_symbol.in_out_function = TeeTableFun;
 	tee_symbol.in_out_function_final = TeeFinalizeS;
