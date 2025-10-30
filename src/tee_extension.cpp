@@ -154,17 +154,6 @@ void TeeExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
 
-std::string TeeExtension::Name() {
-	return "tee";
-}
-
-std::string TeeExtension::Version() const {
-#ifdef EXT_VERSION_TEE
-	return EXT_VERSION_TEE;
-#else
-	return "";
-#endif
-}
 
 } // namespace duckdb
 

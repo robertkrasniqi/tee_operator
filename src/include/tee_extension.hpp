@@ -59,8 +59,18 @@ class TeeExtension : public Extension {
 public:
 	// load() is called when the extension is installed into a database
 	void Load(ExtensionLoader &loader) override;
-	std::string Name() override;
-	std::string Version() const override;
+
+	std::string Name() override{
+		return "tee";
+	}
+
+	std::string Version() const override {
+	#ifdef EXT_VERSION_TEE
+		return EXT_VERSION_TEE;
+	#else
+		return "";
+	#endif
+	}
 };
 
 } // namespace duckdb
