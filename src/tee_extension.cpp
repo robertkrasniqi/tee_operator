@@ -72,46 +72,54 @@ static OperatorFinalizeResultType TeeFinalizeC(ExecutionContext &context,
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 	auto &bind_state = data_p.bind_data->Cast<TeeBindDataC>();
 
-	// prints only once
 	if (!global_state.printed) {
 		std::cout << "Tee Operator:" << "\n";
-
-		auto renderer = BoxRenderer();
-
-		renderer.Print(context.client, global_state.names, global_state.buffered);
-
-		global_state.printed = true;
 
 		if (!bind_state.path.empty()) {
 			std::cout << "write to: " << bind_state.path << "\n";
 
-			FileSystem &fs =  FileSystem::GetFileSystem(context.client);
+			FileSystem &fs = FileSystem::GetFileSystem(context.client);
 
+			// prepare options
 			CSVReaderOptions options;
+			options.name_list = global_state.names;
+			// set own names
+			options.columns_set = true;
+			options.force_quote.resize(global_state.names.size(), false);
 
-			CSVWriter writer(options,fs, bind_state.path, FileCompressionType::UNCOMPRESSED, false);
+			// initialize state
+			CSVWriterState write_state(context.client, 4096ULL * 8ULL); // in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
+			// initialize writer
+			CSVWriter writer(options, fs, bind_state.path, FileCompressionType::UNCOMPRESSED, false);
 
-			// force
+			// force writing header and prefix
 			writer.Initialize(true);
 
+			// scan/initialize ColumnDataCollection with our buffered data
+			// this is the place where our column data lives
 			ColumnDataScanState scan_state;
+			global_state.buffered.InitializeScan(scan_state);
 
+			// initialize chunk
 			DataChunk chunk;
+			global_state.buffered.InitializeScanChunk(scan_state, chunk);
 
-			chunk.Initialize(bind_state.context, bind_state.types);
-			//chunk.Initialize(global_state.buffered, bind_state.types);
-
-			//while (global_state.buffered.Scan(scan_state, chunk)) {
-			for (int i = 0; i < 5000; i++) {
-				std::cout << "yoyo" << "\n";
-				writer.WriteChunk(chunk);
+			// as long as we have data write it
+			while (global_state.buffered.Scan(scan_state, chunk)) {
+				// WriteChunk writes only VARCHAR columns
+				// limitation for now
+				writer.WriteChunk(chunk, write_state);
+				chunk.Reset();
 			}
 
-			writer.Flush();
+			writer.Flush(write_state);
 			writer.Close();
-
 		}
 	}
+	auto renderer = BoxRenderer();
+	renderer.Print(context.client, global_state.names, global_state.buffered);
+	global_state.printed = true;
+
 	return OperatorFinalizeResultType::FINISHED;
 }
 
