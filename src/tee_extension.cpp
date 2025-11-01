@@ -118,10 +118,19 @@ static OperatorFinalizeResultType TeeFinalizeC(ExecutionContext &context,
 // this function is called once at the start of execution to create the global state
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context,
                                                           TableFunctionInitInput &input) {
-	// get the bind data
 	auto &bind_data = input.bind_data->Cast<TeeBindData>();
+	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
+}
 
-	// initialize global state with both types and names
+static unique_ptr<GlobalTableFunctionState> TeeInitGlobalS(ClientContext &context,
+														  TableFunctionInitInput &input) {
+	auto &bind_data = input.bind_data->Cast<TeeBindDataS>();
+	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
+}
+
+static unique_ptr<GlobalTableFunctionState> TeeInitGlobalC(ClientContext &context,
+														  TableFunctionInitInput &input) {
+	auto &bind_data = input.bind_data->Cast<TeeBindDataC>();
 	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
 }
 
@@ -206,14 +215,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Use varargs, allowing us to have 0 to 1 string arguments. If we have more than one, we throw
 	// an exception in binder phase
 	tee_symbol.varargs = LogicalType::VARCHAR;
-	tee_symbol.init_global = TeeInitGlobal;
+	tee_symbol.init_global = TeeInitGlobalS;
 	tee_symbol.in_out_function = TeeTableFun;
 	tee_symbol.in_out_function_final = TeeFinalizeS;
 	loader.RegisterFunction(tee_symbol);
 
 	TableFunction tee_csv("c_tee", {LogicalType::TABLE}, nullptr, TeeBindC);
 	tee_csv.varargs = LogicalType::VARCHAR;
-	tee_csv.init_global = TeeInitGlobal;
+	tee_csv.init_global = TeeInitGlobalC;
 	tee_csv.in_out_function = TeeTableFun;
 	tee_csv.in_out_function_final = TeeFinalizeC;
 	loader.RegisterFunction(tee_csv);
