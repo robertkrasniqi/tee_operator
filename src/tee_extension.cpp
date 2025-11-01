@@ -1,6 +1,7 @@
 #include "tee_extension.hpp"
 #include "tee_parser.hpp"
 #include <regex>
+#include "duckdb/common/csv_writer.hpp"
 
 
 namespace duckdb {
@@ -64,6 +65,56 @@ static OperatorFinalizeResultType TeeFinalizeS(ExecutionContext &context,
 	return OperatorFinalizeResultType::FINISHED;
 }
 
+static OperatorFinalizeResultType TeeFinalizeC(ExecutionContext &context,
+											  TableFunctionInput &data_p,
+											  DataChunk &output) {
+
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+	auto &bind_state = data_p.bind_data->Cast<TeeBindDataC>();
+
+	// prints only once
+	if (!global_state.printed) {
+		std::cout << "Tee Operator:" << "\n";
+
+		auto renderer = BoxRenderer();
+
+		renderer.Print(context.client, global_state.names, global_state.buffered);
+
+		global_state.printed = true;
+
+		if (!bind_state.path.empty()) {
+			std::cout << "write to: " << bind_state.path << "\n";
+
+			FileSystem &fs =  FileSystem::GetFileSystem(context.client);
+
+			CSVReaderOptions options;
+
+			CSVWriter writer(options,fs, bind_state.path, FileCompressionType::UNCOMPRESSED, false);
+
+			// force
+			writer.Initialize(true);
+
+			ColumnDataScanState scan_state;
+
+			DataChunk chunk;
+
+			chunk.Initialize(bind_state.context, bind_state.types);
+			//chunk.Initialize(global_state.buffered, bind_state.types);
+
+			//while (global_state.buffered.Scan(scan_state, chunk)) {
+			for (int i = 0; i < 5000; i++) {
+				std::cout << "yoyo" << "\n";
+				writer.WriteChunk(chunk);
+			}
+
+			writer.Flush();
+			writer.Close();
+
+		}
+	}
+	return OperatorFinalizeResultType::FINISHED;
+}
+
 // this function is called once at the start of execution to create the global state
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context,
                                                           TableFunctionInitInput &input) {
@@ -112,6 +163,29 @@ static unique_ptr<FunctionData> TeeBindS(ClientContext &context,
 	return make_uniq<TeeBindDataS>(names, return_types, symbol);
 }
 
+static unique_ptr<FunctionData> TeeBindC(ClientContext &context,
+										TableFunctionBindInput &input,
+										vector<LogicalType> &return_types,
+										vector<string> &names) {
+
+	names = input.input_table_names;
+	return_types = input.input_table_types;
+	string path;
+
+
+	// FIXME
+	if (input.inputs.size() > 2) {
+		throw BinderException("c_tee expects only one string argument.");
+	}
+	if (input.inputs.size() == 2) {
+		path = input.inputs[1].GetValue<string>();
+	}
+
+	// returns a bind data object
+	return make_uniq<TeeBindDataC>(names, return_types, path, context);
+}
+
+
 
 // called when the extension is loaded
 // registers the tee table function and the parser extension
@@ -136,6 +210,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_symbol.in_out_function = TeeTableFun;
 	tee_symbol.in_out_function_final = TeeFinalizeS;
 	loader.RegisterFunction(tee_symbol);
+
+	TableFunction tee_csv("c_tee", {LogicalType::TABLE}, nullptr, TeeBindC);
+	tee_csv.varargs = LogicalType::VARCHAR;
+	tee_csv.init_global = TeeInitGlobal;
+	tee_csv.in_out_function = TeeTableFun;
+	tee_csv.in_out_function_final = TeeFinalizeC;
+	loader.RegisterFunction(tee_csv);
+
 
 	ParserExtension tee_parser {};
 	tee_parser.parser_override = TeeParserExtension::ParserOverrideFunction;

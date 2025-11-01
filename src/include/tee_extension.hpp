@@ -41,6 +41,29 @@ struct TeeBindDataS : public FunctionData {
 	}
 };
 
+struct TeeBindDataC : public FunctionData {
+	TeeBindDataC(vector<string> names_p, vector<LogicalType> types_p, string path_p, ClientContext &context_p)
+	    : names(std::move(names_p)), types(std::move(types_p)), path(path_p), context(context_p) {
+	}
+
+	// maybe delete context_p
+	// need it for FileSystem &fs =  FileSystem::GetFileSystem(context.client);
+	// in FinalizeC
+	vector<string> names;
+	vector<LogicalType> types;
+	string path;
+	ClientContext &context;
+
+	unique_ptr<FunctionData> Copy() const override {
+		return make_uniq<TeeBindDataC>(names, types, path, context);
+	}
+
+	bool Equals(const FunctionData &other_p) const override {
+		auto &other = other_p.Cast<TeeBindDataC>();
+		return names == other.names && types == other.types && other.path == path;
+	}
+};
+
 
 struct TeeGlobalState : public GlobalTableFunctionState {
 	TeeGlobalState(ClientContext &context,
