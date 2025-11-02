@@ -46,9 +46,8 @@ struct TeeBindDataC : public FunctionData {
 	    : names(std::move(names_p)), types(std::move(types_p)), path(path_p), context(context_p) {
 	}
 
-	// maybe delete context_p
-	// need it for FileSystem &fs =  FileSystem::GetFileSystem(context.client);
-	// in FinalizeC
+	// maybe delete context_p later?
+	// need it for FileSystem &fs =  FileSystem::GetFileSystem(context.client);	in FinalizeC
 	vector<string> names;
 	vector<LogicalType> types;
 	string path;

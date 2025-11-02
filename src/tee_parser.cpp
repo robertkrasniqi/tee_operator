@@ -17,8 +17,6 @@ struct TeeParseData : public ParserExtensionParseData {
 };
 
 static string CustomTeeParser(const string &query) {
-	// TODO´s
-	// -- edge cases, invalid input ..
 
 	string result_query = StringUtil::Lower(query);
 
@@ -122,7 +120,6 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 
 
 ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo *info, const string &query) {
-	// Dummyfunction by now
 	ParserExtensionParseResult result;
 	result.parse_data = make_uniq<TeeParseData>();
 	return result;
@@ -131,7 +128,6 @@ ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo
 //! PlanFunction is called after parsing
 ParserExtensionPlanResult TeeParserExtension::PlanFunction(ParserExtensionInfo *info, ClientContext &context,
 														   unique_ptr<ParserExtensionParseData> parse_data) {
-	// TODO: Implement plan logic. (for logical plan I guess)
 	ParserExtensionPlanResult result;
 	return result;
 }

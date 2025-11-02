@@ -54,8 +54,6 @@ static OperatorFinalizeResultType TeeFinalizeS(ExecutionContext &context,
 	if (!global_state.printed) {
 		std::cout << "Tee Operator, Query: " << bind_state.symbol << "\n";
 
-
-
 		auto renderer = BoxRenderer();
 
 		renderer.Print(context.client, global_state.names, global_state.buffered);
@@ -160,9 +158,7 @@ static unique_ptr<FunctionData> TeeBindS(ClientContext &context,
 										vector<string> &names) {
 	names = input.input_table_names;
 	return_types = input.input_table_types;
-
-	static idx_t counter = 0;
-
+	static idx_t call_counter = 0;
 	string symbol;
 
 	if (input.inputs.size() > 2) {
@@ -172,8 +168,7 @@ static unique_ptr<FunctionData> TeeBindS(ClientContext &context,
 	if (input.inputs.size() == 2) {
 		symbol = input.inputs[1].GetValue<string>();
 	} else {
-		++counter;
-		symbol = "No " + std::to_string(counter) + ".";
+		symbol = "No " + std::to_string(++call_counter) + ".";
 	}
 
 	// returns a bind data object
@@ -189,8 +184,6 @@ static unique_ptr<FunctionData> TeeBindC(ClientContext &context,
 	return_types = input.input_table_types;
 	string path;
 
-
-	// FIXME
 	if (input.inputs.size() > 2) {
 		throw BinderException("c_tee expects only one string argument.");
 	}
@@ -252,8 +245,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 void TeeExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
-
-
 } // namespace duckdb
 
 extern "C" {
