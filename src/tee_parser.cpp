@@ -71,6 +71,8 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 	if (!StringUtil::Contains(StringUtil::Lower(query), " tee")) {
 		return ParserOverrideResult();
 	}
+	// turn parser off - default behaivor
+	return ParserOverrideResult();
 
 	// call own parser
 	string modified_query = CustomTeeParser(query);

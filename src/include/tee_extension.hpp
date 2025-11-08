@@ -7,39 +7,23 @@
 namespace duckdb {
 
 struct TeeBindData : public FunctionData {
-	TeeBindData(vector<string> names_p, vector<LogicalType> types_p)
-	    : names(std::move(names_p)), types(std::move(types_p)) {}
+	TeeBindData(vector<string> names_p, vector<LogicalType> types_p, named_parameter_map_t tee_named_parameter_p)
+	    : names(std::move(names_p)), types(std::move(types_p)), tee_named_parameters(std:: move(tee_named_parameter_p)) {}
 
 	vector<string> names;
 	vector<LogicalType> types;
+	named_parameter_map_t tee_named_parameters;
 
 	unique_ptr<FunctionData> Copy() const override {
-		return make_uniq<TeeBindData>(names, types);
+		return make_uniq<TeeBindData>(names, types, tee_named_parameters);
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<TeeBindData>();
-		return names == other.names && types == other.types;
+		return names == other.names && types == other.types && tee_named_parameters == other.tee_named_parameters;
 	}
 };
 
-struct TeeBindDataS : public FunctionData {
-	TeeBindDataS(vector<string> names_p, vector<LogicalType> types_p, string symbol_p)
-		: names(std::move(names_p)), types(std::move(types_p)), symbol(std::move(symbol_p)) {}
-
-	vector<string> names;
-	vector<LogicalType> types;
-	string symbol;
-
-	unique_ptr<FunctionData> Copy() const override {
-		return make_uniq<TeeBindDataS>(names, types, symbol);
-	}
-
-	bool Equals(const FunctionData &other_p) const override {
-		auto &other = other_p.Cast<TeeBindDataS>();
-		return names == other.names && types == other.types && symbol == other.symbol;
-	}
-};
 
 struct TeeBindDataC : public FunctionData {
 	TeeBindDataC(vector<string> names_p, vector<LogicalType> types_p, string path_p, ClientContext &context_p)

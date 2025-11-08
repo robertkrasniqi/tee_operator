@@ -23,17 +23,31 @@ static OperatorResultType TeeTableFun(ExecutionContext &context,
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 
-// this function is called once at the end
-// prints our bufferd data
 static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context,
                                               TableFunctionInput &data_p,
                                               DataChunk &output) {
 
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
+
+	// terminal output is the default behavior
+	bool terminal_flag = true;
+
+	auto const it_terminal = parameter_map.find("terminal");
+	auto const it_symbol = parameter_map.find("symbol");
+
+	if (it_terminal != parameter_map.end()) {
+		terminal_flag = parameter_map.at("terminal").GetValue<bool>();
+	}
 
 	// prints only once
-	if (!global_state.printed) {
-		std::cout << "Tee Operator:" << "\n";
+	if (!global_state.printed && terminal_flag) {
+		if (it_symbol != parameter_map.end()) {
+			string symbol = parameter_map.at("symbol").GetValue<string>();
+			std::cout << "Tee Operator, Query: " << symbol << "\n";
+		} else {
+			std::cout << "Tee Operator: \n";
+		}
 
 		auto renderer = BoxRenderer();
 
@@ -44,24 +58,6 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context,
 	return OperatorFinalizeResultType::FINISHED;
 }
 
-static OperatorFinalizeResultType TeeFinalizeS(ExecutionContext &context,
-											  TableFunctionInput &data_p,
-											  DataChunk &output) {
-
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
-	auto &bind_state = data_p.bind_data->Cast<TeeBindDataS>();
-	// prints only once
-	if (!global_state.printed) {
-		std::cout << "Tee Operator, Query: " << bind_state.symbol << "\n";
-
-		auto renderer = BoxRenderer();
-
-		renderer.Print(context.client, global_state.names, global_state.buffered);
-
-		global_state.printed = true;
-	}
-	return OperatorFinalizeResultType::FINISHED;
-}
 
 static OperatorFinalizeResultType TeeFinalizeC(ExecutionContext &context,
 											  TableFunctionInput &data_p,
@@ -128,11 +124,6 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context
 	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
 }
 
-static unique_ptr<GlobalTableFunctionState> TeeInitGlobalS(ClientContext &context,
-														  TableFunctionInitInput &input) {
-	auto &bind_data = input.bind_data->Cast<TeeBindDataS>();
-	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
-}
 
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobalC(ClientContext &context,
 														  TableFunctionInitInput &input) {
@@ -142,37 +133,16 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobalC(ClientContext &contex
 
 // runs when a query runs, decides the schema of the table function output
 static unique_ptr<FunctionData> TeeBind(ClientContext &context,
-                                        TableFunctionBindInput &input,
-                                        vector<LogicalType> &return_types,
-                                        vector<string> &names) {
-	names = input.input_table_names;
-	return_types = input.input_table_types;
-
-	// returns a bind data object
-	return make_uniq<TeeBindData>(names, return_types);
-}
-
-static unique_ptr<FunctionData> TeeBindS(ClientContext &context,
 										TableFunctionBindInput &input,
 										vector<LogicalType> &return_types,
-										vector<string> &names) {
+										vector<string> &names,
+										named_parameter_map_t &named_parameters) {
 	names = input.input_table_names;
 	return_types = input.input_table_types;
-	static idx_t call_counter = 0;
-	string symbol;
-
-	if (input.inputs.size() > 2) {
-		throw BinderException("s_tee expects only one string argument.");
-	}
-
-	if (input.inputs.size() == 2) {
-		symbol = input.inputs[1].GetValue<string>();
-	} else {
-		symbol = "No " + std::to_string(++call_counter) + ".";
-	}
+	named_parameters = input.named_parameters;
 
 	// returns a bind data object
-	return make_uniq<TeeBindDataS>(names, return_types, symbol);
+	return make_uniq<TeeBindData>(names, return_types, named_parameters);
 }
 
 static unique_ptr<FunctionData> TeeBindC(ClientContext &context,
@@ -196,30 +166,18 @@ static unique_ptr<FunctionData> TeeBindC(ClientContext &context,
 }
 
 
-
 // called when the extension is loaded
 // registers the tee table function and the parser extension
 static void LoadInternal(ExtensionLoader &loader) {
 
-	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, TeeBind);
+	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, reinterpret_cast<table_function_bind_t>(TeeBind));
 	tee_function.init_global = TeeInitGlobal;
+	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
+	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
+	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.in_out_function_final = TeeFinalize;
 	loader.RegisterFunction(tee_function);
-
-	TableFunction tee_symbol("s_tee", {LogicalType::TABLE}, nullptr, TeeBindS);
-	// We want a default string argument, DuckDB doesn't allow overloading when having TABLE parameter:
-	// INTERNAL Error:
-	// Function "s_tee" has a TABLE parameter, and multiple function overloads - this is not supported
-
-	// Workaround:
-	// Use varargs, allowing us to have 0 to 1 string arguments. If we have more than one, we throw
-	// an exception in binder phase
-	tee_symbol.varargs = LogicalType::VARCHAR;
-	tee_symbol.init_global = TeeInitGlobalS;
-	tee_symbol.in_out_function = TeeTableFun;
-	tee_symbol.in_out_function_final = TeeFinalizeS;
-	loader.RegisterFunction(tee_symbol);
 
 	TableFunction tee_csv("c_tee", {LogicalType::TABLE}, nullptr, TeeBindC);
 	tee_csv.varargs = LogicalType::VARCHAR;
@@ -227,7 +185,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_csv.in_out_function = TeeTableFun;
 	tee_csv.in_out_function_final = TeeFinalizeC;
 	loader.RegisterFunction(tee_csv);
-
 
 	ParserExtension tee_parser {};
 	tee_parser.parser_override = TeeParserExtension::ParserOverrideFunction;
