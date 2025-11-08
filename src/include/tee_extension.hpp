@@ -8,7 +8,8 @@ namespace duckdb {
 
 struct TeeBindData : public FunctionData {
 	TeeBindData(vector<string> names_p, vector<LogicalType> types_p, named_parameter_map_t tee_named_parameter_p)
-	    : names(std::move(names_p)), types(std::move(types_p)), tee_named_parameters(std:: move(tee_named_parameter_p)) {}
+	    : names(std::move(names_p)), types(std::move(types_p)), tee_named_parameters(std::move(tee_named_parameter_p)) {
+	}
 
 	vector<string> names;
 	vector<LogicalType> types;
@@ -24,34 +25,8 @@ struct TeeBindData : public FunctionData {
 	}
 };
 
-
-struct TeeBindDataC : public FunctionData {
-	TeeBindDataC(vector<string> names_p, vector<LogicalType> types_p, string path_p, ClientContext &context_p)
-	    : names(std::move(names_p)), types(std::move(types_p)), path(path_p), context(context_p) {
-	}
-
-	// maybe delete context_p later?
-	// need it for FileSystem &fs =  FileSystem::GetFileSystem(context.client);	in FinalizeC
-	vector<string> names;
-	vector<LogicalType> types;
-	string path;
-	ClientContext &context;
-
-	unique_ptr<FunctionData> Copy() const override {
-		return make_uniq<TeeBindDataC>(names, types, path, context);
-	}
-
-	bool Equals(const FunctionData &other_p) const override {
-		auto &other = other_p.Cast<TeeBindDataC>();
-		return names == other.names && types == other.types && other.path == path;
-	}
-};
-
-
 struct TeeGlobalState : public GlobalTableFunctionState {
-	TeeGlobalState(ClientContext &context,
-	               const vector<LogicalType> &types_p,
-	               const vector<string> &names_p)
+	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p, const vector<string> &names_p)
 	    : buffered(context, types_p), names(names_p), printed(false) {
 	}
 
@@ -66,16 +41,16 @@ public:
 	// load() is called when the extension is installed into a database
 	void Load(ExtensionLoader &loader) override;
 
-	std::string Name() override{
+	std::string Name() override {
 		return "tee";
 	}
 
 	std::string Version() const override {
-	#ifdef EXT_VERSION_TEE
+#ifdef EXT_VERSION_TEE
 		return EXT_VERSION_TEE;
-	#else
+#else
 		return "";
-	#endif
+#endif
 	}
 };
 
