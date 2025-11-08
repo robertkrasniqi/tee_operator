@@ -3,6 +3,8 @@
 #include <regex>
 #include "duckdb/common/csv_writer.hpp"
 
+#include <duckdb/main/connection_manager.hpp>
+
 namespace duckdb {
 
 // this function is called once per chunk
@@ -67,6 +69,15 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 	writer.Close();
 }
 
+static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p, DataChunk & output, string &table_name) {
+	const auto &db = context.client.db;
+	const auto &con_list = db->GetConnectionManager().GetConnectionList();
+
+	if (con_list.size() != 1) {
+		return;
+	}
+}
+
 static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
                                               DataChunk &output) {
 
@@ -79,6 +90,7 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 	auto const it_terminal = parameter_map.find("terminal");
 	auto const it_symbol = parameter_map.find("symbol");
 	auto const it_csv_path = parameter_map.find("path");
+	auto const it_table = parameter_map.find("table_name");
 
 	if (it_terminal != parameter_map.end()) {
 		terminal_flag = parameter_map.at("terminal").GetValue<bool>();
@@ -87,6 +99,11 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 	if (it_csv_path != parameter_map.end()) {
 		string path = parameter_map.at("path").GetValue<string>();
 		TeeCSVWriter(context, data_p, output, path);
+	}
+
+	if (it_table != parameter_map.end()) {
+		string table_name = " ";
+		TeeTableWriter(context, data_p, output, table_name);
 	}
 
 	// prints only once
@@ -132,6 +149,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
+	tee_function.named_parameters["table_name"] = LogicalType::VARCHAR;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.in_out_function_final = TeeFinalize;
 	loader.RegisterFunction(tee_function);
