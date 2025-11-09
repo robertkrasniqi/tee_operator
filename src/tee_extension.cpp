@@ -2,6 +2,7 @@
 #include "tee_parser.hpp"
 #include <regex>
 #include "duckdb/common/csv_writer.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
 
 #include <duckdb/main/connection_manager.hpp>
 
@@ -59,9 +60,25 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 
 	// as long as we have data write it
 	while (global_state.buffered.Scan(scan_state, chunk)) {
-		// WriteChunk writes only VARCHAR columns
-		// limitation for now
-		writer.WriteChunk(chunk, write_state);
+		// CSVWriter expects varchar columns. For that, we cast our current chunk into a new chunk
+		// which has only varchar columns.
+		DataChunk varchar_chunk;
+		vector<LogicalType> varchar_vector;
+		varchar_vector.reserve(chunk.ColumnCount());
+		for (idx_t i = 0; i < chunk.ColumnCount(); ++i) {
+			varchar_vector.emplace_back(LogicalType::VARCHAR);
+		}
+		// initialize chunk with same client context
+		varchar_chunk.Initialize(context.client, varchar_vector);
+		idx_t rows = chunk.size();
+		for (idx_t col = 0; col < chunk.ColumnCount(); ++col) {
+			VectorOperations::DefaultCast(chunk.data[col], varchar_chunk.data[col], rows, false);
+		}
+		// Tell the chunk how many rows it has. If we dont, we write 0 rows.
+		varchar_chunk.SetCardinality(rows);
+
+		writer.WriteChunk(varchar_chunk, write_state);
+		varchar_chunk.Reset();
 		chunk.Reset();
 	}
 
@@ -69,7 +86,8 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 	writer.Close();
 }
 
-static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p, DataChunk & output, string &table_name) {
+static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output,
+                           string &table_name) {
 	const auto &db = context.client.db;
 	const auto &con_list = db->GetConnectionManager().GetConnectionList();
 
@@ -132,7 +150,7 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context
 
 // runs when a query runs, decides the schema of the table function output
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
-                                        vector<LogicalType> &return_types, vector<string> &names, named_parameter_map_t named_parameters) {
+                                        vector<LogicalType> &return_types, vector<string> &names) {
 	names = input.input_table_names;
 	return_types = input.input_table_types;
 
