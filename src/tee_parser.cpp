@@ -3,14 +3,13 @@
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
 
-
 namespace duckdb {
 
 //! Holds the data of successfully parse step
 struct TeeParseData : public ParserExtensionParseData {
 	unique_ptr<ParserExtensionParseData> Copy() const override {
 		return make_uniq<TeeParseData>();
-	}//! can be used later for debugging
+	}
 	string ToString() const override {
 		return "Parsed Data";
 	}
@@ -66,13 +65,17 @@ static string CustomTeeParser(const string &query) {
 //! Is called for parsing
 //! Makes it possible to use a custom parser
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
+	string temp_query = StringUtil::Lower(query);
 
-	// no "tee" in query, return to default parser
-	if (!StringUtil::Contains(StringUtil::Lower(query), " tee")) {
+	// no "tee" in the query, return to the default parser
+	if (!StringUtil::Contains(temp_query, " tee")) {
 		return ParserOverrideResult();
 	}
-	// turn parser off - default behaivor
-	return ParserOverrideResult();
+	// if the query contains a mode keyword of the tee extension, dont try to modify return to the default parser
+	if (StringUtil::Contains(temp_query, "terminal") || StringUtil::Contains(temp_query, " path") ||
+	    StringUtil::Contains(temp_query, "symbol") || StringUtil::Contains(temp_query, "table_name")) {
+		return ParserOverrideResult();
+	}
 
 	// call own parser
 	string modified_query = CustomTeeParser(query);
@@ -87,13 +90,12 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 		for (auto &stmt : statements) {
 			result_statements.push_back(std::move(stmt));
 		}
-
 		// This occurs for a valid query input
 		std::cout << "Debug: Parsing successful in TeeParserExtension.\n";
 
 		return ParserOverrideResult(std::move(result_statements));
-	}
-	catch (ParserException &ex) {
+
+	} catch (ParserException &ex) {
 		// what() prints additional information, e.g. the position where the error is
 		// Later I want to parse the things before the error, and handle (parse correct) the things from the error on
 		std::cout << "Exception message:\n" << ex.what() << "\n";
@@ -109,7 +111,7 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 		size_t leftPartIdx = errorMessage.find(leftIndexStr) + leftIndexStr.length();
 		size_t rightPartIdx = errorMessage.find(",\"error_subtype");
 
-		string idxErrorTemp = errorMessage.substr(leftPartIdx, (rightPartIdx - 1)  - leftPartIdx);
+		string idxErrorTemp = errorMessage.substr(leftPartIdx, (rightPartIdx - 1) - leftPartIdx);
 
 		// convert string to int
 		int64_t idxParseError = std::stoll(idxErrorTemp);
@@ -120,7 +122,6 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 	}
 }
 
-
 ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo *info, const string &query) {
 	ParserExtensionParseResult result;
 	result.parse_data = make_uniq<TeeParseData>();
@@ -129,9 +130,9 @@ ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo
 
 //! PlanFunction is called after parsing
 ParserExtensionPlanResult TeeParserExtension::PlanFunction(ParserExtensionInfo *info, ClientContext &context,
-														   unique_ptr<ParserExtensionParseData> parse_data) {
+                                                           unique_ptr<ParserExtensionParseData> parse_data) {
 	ParserExtensionPlanResult result;
 	return result;
 }
 
-};
+}; // namespace duckdb
