@@ -88,12 +88,55 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 
 static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output,
                            string &table_name) {
-	const auto &db = context.client.db;
-	const auto &con_list = db->GetConnectionManager().GetConnectionList();
 
-	if (con_list.size() != 1) {
-		return;
+	auto &bind_data = data_p.bind_data->Cast<TeeBindData>();
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+
+	auto &db = context.client.db->GetDatabase(context.client);
+	Connection con(db);
+
+	vector<string> names = bind_data.names;
+	vector<LogicalType> types = bind_data.types;
+
+	// copy name and type schema of the current subquery for new table
+	string name_types = "";
+	for (idx_t i = 0; i < names.size(); i++) {
+		name_types += " " + names[i] + " " + types[i].ToString();
+		if (i + 1 < names.size()) {
+			name_types += ", ";
+		};
 	}
+
+	string sql_statement = "CREATE OR REPLACE TABLE " + table_name + "(" + name_types + ")";
+
+	con.Query(sql_statement);
+
+	// create an appender on the existing context/database
+	// is responsible for writing the actual rows in the table
+	Appender appender(con, table_name);
+
+	ColumnDataScanState scan_state;
+	global_state.buffered.InitializeScan(scan_state);
+
+	DataChunk chunk;
+	global_state.buffered.InitializeScanChunk(scan_state, chunk);
+
+	while (global_state.buffered.Scan(scan_state, chunk)) {
+		idx_t rows = chunk.size();
+		for (idx_t cur_row = 0; cur_row < rows; cur_row++) {
+			appender.BeginRow();
+			for (idx_t cur_col = 0; cur_col < chunk.ColumnCount(); cur_col++) {
+				// read value from chunk
+				Value value = chunk.GetValue(cur_col, cur_row);
+				// write value to appender
+				appender.Append(value);
+			}
+			appender.EndRow();
+		}
+		chunk.Reset();
+	}
+	// write everything from the buffer before closing
+	appender.Close();
 }
 
 static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
@@ -120,7 +163,7 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 	}
 
 	if (it_table != parameter_map.end()) {
-		string table_name = " ";
+		string table_name = parameter_map.at("table_name").GetValue<string>();
 		TeeTableWriter(context, data_p, output, table_name);
 	}
 
