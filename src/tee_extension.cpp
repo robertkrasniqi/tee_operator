@@ -14,17 +14,17 @@ static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionIn
 	// access to the global state object
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
-	// append the current chunk to the global buffer
+	// lock the global_space to prevent race conditions
+	// and append the current chunk to the global buffer
+	global_state.lock.lock();
 	global_state.buffered.Append(input);
-
-	// pass through the input chunk unchanged to the output
 	output.Reference(input);
+	global_state.lock.unlock();
 
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 
 static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output, string &path) {
-
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
 	// write always in my local dir
@@ -88,7 +88,6 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 
 static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output,
                            string &table_name) {
-
 	auto &bind_data = data_p.bind_data->Cast<TeeBindData>();
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
@@ -138,10 +137,7 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	// write everything from the buffer before closing
 	appender.Close();
 }
-
-static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
-                                              DataChunk &output) {
-
+static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
 
@@ -175,12 +171,25 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 		} else {
 			std::cout << "Tee Operator: \n";
 		}
-
 		auto renderer = BoxRenderer();
-
 		renderer.Print(context.client, global_state.names, global_state.buffered);
-
 		global_state.printed = true;
+	}
+}
+
+// gets called once per per thread when the thread is done
+static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
+                                              DataChunk &output) {
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+	atomic<int> &active_threads = global_state.active_threads;
+
+	// decrement active_threads until we have 0 left
+	// 0 means we accessed with the last thread and
+	// the last thread has to do the real writing work
+	active_threads -= 1;
+
+	if (active_threads == 0) {
+		TeeWriteResult(context, data_p, output);
 	}
 	return OperatorFinalizeResultType::FINISHED;
 }
@@ -191,12 +200,20 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context
 	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
 }
 
-// runs when a query runs, decides the schema of the table function output
+// gets called once per thread
+static unique_ptr<LocalTableFunctionState> TeeInitLocal(ExecutionContext &context, TableFunctionInitInput &input,
+                                                        GlobalTableFunctionState *global_state_p) {
+	auto &global_state = global_state_p->Cast<TeeGlobalState>();
+	// For every thread, increment by 1. Need that to decrement later to
+	// the correct number of threads really used.
+	global_state.active_threads += 1;
+	return make_uniq<TeeLocalState>();
+}
+
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<string> &names) {
 	names = input.input_table_names;
 	return_types = input.input_table_types;
-
 	// returns a bind data object
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
 }
@@ -204,15 +221,15 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBin
 // called when the extension is loaded
 // registers the tee table function and the parser extension
 static void LoadInternal(ExtensionLoader &loader) {
-
 	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, reinterpret_cast<table_function_bind_t>(TeeBind));
 	tee_function.init_global = TeeInitGlobal;
+	tee_function.init_local = TeeInitLocal;
+	tee_function.in_out_function = TeeTableFun;
+	tee_function.in_out_function_final = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
 	tee_function.named_parameters["table_name"] = LogicalType::VARCHAR;
-	tee_function.in_out_function = TeeTableFun;
-	tee_function.in_out_function_final = TeeFinalize;
 	loader.RegisterFunction(tee_function);
 
 	ParserExtension tee_parser {};

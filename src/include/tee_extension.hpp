@@ -29,12 +29,17 @@ struct TeeGlobalState : public GlobalTableFunctionState {
 	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p, const vector<string> &names_p)
 	    : buffered(context, types_p), names(names_p), printed(false) {
 	}
-
 	ColumnDataCollection buffered;
 	vector<string> names;
+	mutex lock;
 	// flag to ensure we only print once at end
 	bool printed;
+	// gets incremented for every thread
+	atomic<int> active_threads {0};
 };
+
+// need no functionality
+struct TeeLocalState : public LocalTableFunctionState {};
 
 class TeeExtension : public Extension {
 public:
