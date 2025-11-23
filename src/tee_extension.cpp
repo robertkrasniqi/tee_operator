@@ -185,8 +185,8 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 
 	// decrement active_threads until we have 0 left
 	// 0 means we accessed with the last thread and
-	// the last thread has to do the real writing work
-	active_threads -= 1;
+	// the last thread can do the real writing work sss
+	--active_threads;
 
 	if (active_threads == 0) {
 		TeeWriteResult(context, data_p, output);
@@ -206,7 +206,7 @@ static unique_ptr<LocalTableFunctionState> TeeInitLocal(ExecutionContext &contex
 	auto &global_state = global_state_p->Cast<TeeGlobalState>();
 	// For every thread, increment by 1. Need that to decrement later to
 	// the correct number of threads really used.
-	global_state.active_threads += 1;
+	++global_state.active_threads;
 	return make_uniq<TeeLocalState>();
 }
 
