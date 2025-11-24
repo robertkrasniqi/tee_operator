@@ -1,10 +1,8 @@
 #include "tee_extension.hpp"
 #include "tee_parser.hpp"
-#include <regex>
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
-
-#include <duckdb/main/connection_manager.hpp>
+#include "duckdb/main/connection_manager.hpp"
 
 namespace duckdb {
 
@@ -137,6 +135,7 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	// write everything from the buffer before closing
 	appender.Close();
 }
+
 static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
@@ -171,7 +170,10 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 		} else {
 			std::cout << "Tee Operator: \n";
 		}
-		auto renderer = BoxRenderer();
+		BoxRendererConfig config;
+		// config.max_rows = 999999;
+		// config.render_mode = RenderMode::COLUMNS;
+		BoxRenderer renderer(config);
 		renderer.Print(context.client, global_state.names, global_state.buffered);
 		global_state.printed = true;
 	}
