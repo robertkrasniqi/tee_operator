@@ -6,18 +6,20 @@
 
 namespace duckdb {
 
+struct TeeParseData : public ParserExtensionParseData {
+	unique_ptr<ParserExtensionParseData> Copy() const override {
+		return make_uniq<TeeParseData>();
+	}
+	string ToString() const override {
+		return "Parsed Data";
+	}
+};
+
 struct TeeParserInfo : public ParserExtensionInfo {};
 
 class TeeParserExtension : public ParserExtension {
 public:
 	static ParserOverrideResult ParserOverrideFunction(ParserExtensionInfo *info, const string &query);
-	static ParserExtensionParseResult ParseFunction(ParserExtensionInfo *info, const string &query);
-	static ParserExtensionPlanResult PlanFunction(ParserExtensionInfo *info, ClientContext &context,
-												  unique_ptr<ParserExtensionParseData> parse_data);
 };
 
-
-};
-
-
-
+}; // namespace duckdb

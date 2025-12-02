@@ -56,7 +56,7 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 	DataChunk chunk;
 	global_state.buffered.InitializeScanChunk(scan_state, chunk);
 
-	// as long as we have data write it
+	// as long as we have data, write it
 	while (global_state.buffered.Scan(scan_state, chunk)) {
 		// CSVWriter expects varchar columns. For that, we cast our current chunk into a new chunk
 		// which has only varchar columns.
@@ -66,13 +66,13 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 		for (idx_t i = 0; i < chunk.ColumnCount(); ++i) {
 			varchar_vector.emplace_back(LogicalType::VARCHAR);
 		}
-		// initialize chunk with same client context
+		// initialize chunk with the same client context
 		varchar_chunk.Initialize(context.client, varchar_vector);
 		idx_t rows = chunk.size();
 		for (idx_t col = 0; col < chunk.ColumnCount(); ++col) {
 			VectorOperations::DefaultCast(chunk.data[col], varchar_chunk.data[col], rows, false);
 		}
-		// Tell the chunk how many rows it has. If we dont, we write 0 rows.
+		// Tell the chunk how many rows it has. If we don't, we write 0 rows.
 		varchar_chunk.SetCardinality(rows);
 
 		writer.WriteChunk(varchar_chunk, write_state);
@@ -95,7 +95,7 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	vector<string> names = bind_data.names;
 	vector<LogicalType> types = bind_data.types;
 
-	// copy name and type schema of the current subquery for new table
+	// copy the name and type schema of the current subquery for the new table
 	string name_types = "";
 	for (idx_t i = 0; i < names.size(); i++) {
 		name_types += " " + names[i] + " " + types[i].ToString();
@@ -179,7 +179,7 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 	}
 }
 
-// gets called once per per thread when the thread is done
+// gets called once per thread when the thread is done
 static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
                                               DataChunk &output) {
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
@@ -212,7 +212,7 @@ static unique_ptr<LocalTableFunctionState> TeeInitLocal(ExecutionContext &contex
 	return make_uniq<TeeLocalState>();
 }
 
-static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
+static unique_ptr<FunctionData> TeeBind(ClientContext &context, const TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<string> &names) {
 	names = input.input_table_names;
 	return_types = input.input_table_types;
@@ -236,8 +236,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	ParserExtension tee_parser {};
 	tee_parser.parser_override = TeeParserExtension::ParserOverrideFunction;
-	tee_parser.parse_function = TeeParserExtension::ParseFunction;
-	tee_parser.plan_function = TeeParserExtension::PlanFunction;
 
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);

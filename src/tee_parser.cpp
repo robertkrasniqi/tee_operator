@@ -5,49 +5,36 @@
 
 namespace duckdb {
 
-//! Holds the data of successfully parse step
-struct TeeParseData : public ParserExtensionParseData {
-	unique_ptr<ParserExtensionParseData> Copy() const override {
-		return make_uniq<TeeParseData>();
-	}
-	string ToString() const override {
-		return "Parsed Data";
-	}
-};
-
+// Parses a SQL-Query and rewrites all occurrences of tee(..) by
+// inserting an extra pair of parentheses
+// Example
+//		Input:	SELECT * FROM  tee(TABLE t)
+//      Output: SELECT * FROM tee((TABLE t)
 static string CustomTeeParser(const string &query) {
-
 	string result_query = StringUtil::Lower(query);
-
-	// this is the index we start at for each new tee call
+	// pos_begin is the index we start at for each new tee call
 	idx_t pos_begin = 0;
-
 	while (true) {
 		idx_t pos_tee = result_query.find("tee", pos_begin);
-
-		// no tee´s anymore -> done
+		// no tee's left -> done
 		if (pos_tee == string::npos) {
 			break;
 		}
-
 		// add 3 positions after we found tee
 		idx_t pos_curr = pos_tee + 3;
-
 		// skip spaces till first no space character
 		while (pos_curr < result_query.size() && StringUtil::CharacterIsSpace(result_query[pos_curr])) {
 			pos_curr++;
 		}
-
+		// insert the first '(' and use a stack to find place where last closing parentheses belong to
 		result_query.insert(pos_curr, "(");
-
-		std::stack<char> paranthese_stack;
-		paranthese_stack.push('(');
-		// Use stack to find place where last closing paranthese belongs to
+		std::stack<char> parenthesis_stack;
+		parenthesis_stack.push('(');
 		for (pos_curr = pos_curr + 2; pos_curr < result_query.size(); pos_curr++) {
 			if (result_query[pos_curr] == '(') {
-				paranthese_stack.push('(');
+				parenthesis_stack.push('(');
 			} else if (result_query[pos_curr] == ')') {
-				paranthese_stack.pop();
+				parenthesis_stack.pop();
 				if (pos_curr + 1 == result_query.size()) {
 					result_query.push_back(')');
 				} else {
@@ -58,81 +45,42 @@ static string CustomTeeParser(const string &query) {
 		}
 		pos_begin = pos_curr;
 	}
-	std::cout << "Debug: this is the returned Query: \n" << result_query << "\n";
+#ifdef DEBUG
+	std::cout << "\n" << "Parsed: " << result_query << "\n \n";
+#endif
 	return result_query;
 }
 
-//! Is called for parsing
-//! Makes it possible to use a custom parser
 ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionInfo *info, const string &query) {
-	string temp_query = StringUtil::Lower(query);
-
-	// no "tee" in the query, return to the default parser
-	if (!StringUtil::Contains(temp_query, " tee")) {
+	// if there are no tee-calls, return to DuckDB parser
+	if (!StringUtil::Contains(StringUtil::Lower(query), " tee")) {
 		return ParserOverrideResult();
 	}
-	// if the query contains a mode keyword of the tee extension, dont try to modify return to the default parser
-	if (StringUtil::Contains(temp_query, "terminal") || StringUtil::Contains(temp_query, " path") ||
-	    StringUtil::Contains(temp_query, "symbol") || StringUtil::Contains(temp_query, "table_name")) {
-		return ParserOverrideResult();
-	}
-
-	// call own parser
+	// insert extra parentheses after each tee call
 	string modified_query = CustomTeeParser(query);
-
-	// maybe change the try logic later
 	try {
+		// after inserting parentheses, DuckDB should always be able to parse it normally
 		Parser parser;
 		parser.ParseQuery(modified_query);
-
 		auto &statements = parser.statements;
 		vector<unique_ptr<SQLStatement>> result_statements;
 		for (auto &stmt : statements) {
 			result_statements.push_back(std::move(stmt));
 		}
-		// This occurs for a valid query input
-		std::cout << "Debug: Parsing successful in TeeParserExtension.\n";
-
 		return ParserOverrideResult(std::move(result_statements));
-
 	} catch (ParserException &ex) {
-		// what() prints additional information, e.g. the position where the error is
-		// Later I want to parse the things before the error, and handle (parse correct) the things from the error on
-		std::cout << "Exception message:\n" << ex.what() << "\n";
-
+#ifdef DEBUG
 		string errorMessage = ex.what();
-
-		/*  search for position in errorMessage and extract the index
-		 * {"exception_type":"Parser","exception_message":"syntax error at or near \"SELECT\"","position":"18","error_subtype":"SYNTAX_ERROR"}
-		 *																								  ^  ^
-		*/
-
 		string leftIndexStr = "\"position\":\"";
 		size_t leftPartIdx = errorMessage.find(leftIndexStr) + leftIndexStr.length();
 		size_t rightPartIdx = errorMessage.find(",\"error_subtype");
-
 		string idxErrorTemp = errorMessage.substr(leftPartIdx, (rightPartIdx - 1) - leftPartIdx);
-
 		// convert string to int
 		int64_t idxParseError = std::stoll(idxErrorTemp);
 		std::cout << idxParseError << "\n";
-		CustomTeeParser(query.substr(idxParseError, query.size()));
-
+#endif
 		return ParserOverrideResult();
 	}
-}
-
-ParserExtensionParseResult TeeParserExtension::ParseFunction(ParserExtensionInfo *info, const string &query) {
-	ParserExtensionParseResult result;
-	result.parse_data = make_uniq<TeeParseData>();
-	return result;
-}
-
-//! PlanFunction is called after parsing
-ParserExtensionPlanResult TeeParserExtension::PlanFunction(ParserExtensionInfo *info, ClientContext &context,
-                                                           unique_ptr<ParserExtensionParseData> parse_data) {
-	ParserExtensionPlanResult result;
-	return result;
 }
 
 }; // namespace duckdb
