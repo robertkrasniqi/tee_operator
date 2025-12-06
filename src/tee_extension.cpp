@@ -174,7 +174,11 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 		// config.max_rows = 999999;
 		// config.render_mode = RenderMode::COLUMNS;
 		BoxRenderer renderer(config);
-		renderer.Print(context.client, global_state.names, global_state.buffered);
+		BoxRenderer s {};
+		StringResultRenderer base;
+		s.Render(context.client, global_state.names, global_state.buffered, base);
+		std::cout << s.ToString(context.client, global_state.names, global_state.buffered) << "\n";
+		// renderer.Print(context.client, global_state.names, global_state.buffered);
 		global_state.printed = true;
 	}
 }
