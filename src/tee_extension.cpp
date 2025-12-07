@@ -196,37 +196,29 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
 
-	// terminal output is the default behavior
-	bool terminal_flag = true;
 	bool pager_flag = false;
-
-	auto const it_terminal = parameter_map.find("terminal");
-	auto const it_symbol = parameter_map.find("symbol");
-	auto const it_csv_path = parameter_map.find("path");
-	auto const it_table = parameter_map.find("table_name");
-	auto const it_pager = parameter_map.find("pager");
-
-	if (it_pager != parameter_map.end()) {
+	if (parameter_map.find("pager") != parameter_map.end()) {
 		pager_flag = parameter_map.at("pager").GetValue<bool>();
 	}
 
-	if (it_terminal != parameter_map.end()) {
+	bool terminal_flag = true;
+	if (parameter_map.find("terminal") != parameter_map.end()) {
 		terminal_flag = parameter_map.at("terminal").GetValue<bool>();
 	}
 
-	if (it_csv_path != parameter_map.end()) {
+	if (parameter_map.find("path") != parameter_map.end()) {
 		string path = parameter_map.at("path").GetValue<string>();
 		TeeCSVWriter(context, data_p, output, path);
 	}
 
-	if (it_table != parameter_map.end()) {
+	if (parameter_map.find("table_name") != parameter_map.end()) {
 		string table_name = parameter_map.at("table_name").GetValue<string>();
 		TeeTableWriter(context, data_p, output, table_name);
 	}
 
 	// prints only once
 	if (!global_state.printed && terminal_flag) {
-		if (it_symbol != parameter_map.end()) {
+		if (parameter_map.find("symbol") != parameter_map.end()) {
 			string symbol = parameter_map.at("symbol").GetValue<string>();
 			std::cout << "Tee Operator, Query: " << symbol << "\n";
 			// if pager is used we don't see the output in the final terminal
