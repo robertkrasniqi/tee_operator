@@ -3,8 +3,64 @@
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/main/connection_manager.hpp"
+#include "duckdb/common/printer.hpp"
 
 namespace duckdb {
+
+static string GetSystemPager() {
+	const char *duckdb_pager = getenv("DUCKDB_PAGER");
+
+	// Try DUCKDB_PAGER first (highest priority for env vars)
+	if (duckdb_pager && strlen(duckdb_pager) > 0) {
+		return duckdb_pager;
+	}
+
+	// Try PAGER next
+	const char *pager = getenv("PAGER");
+	if (pager && strlen(pager) > 0) {
+		return pager;
+	}
+
+	// No valid pager environment variable set, use platform default
+#if defined(_WIN32) || defined(WIN32)
+	// On Windows, use 'more' as default pager
+	return "more";
+#else
+	// On other systems, use 'less' as default pager
+	return "less -SRX";
+#endif
+}
+
+void StartPagerDisplay() {
+#if !defined(_WIN32) && !defined(WIN32)
+	// disable sigpipe trap while displaying the pager
+	signal(SIGPIPE, SIG_IGN);
+#endif
+}
+
+void FinishPagerDisplay() {
+#if !defined(_WIN32) && !defined(WIN32)
+	// enable sigpipe trap again after finishing the display
+	signal(SIGPIPE, SIG_DFL);
+#endif
+}
+
+void SetupPager(const string &out) {
+	string sys_pager = GetSystemPager();
+#if defined(_WIN32) || defined(WIN32)
+	if (win_utf8_mode) {
+		SetConsoleCP(CP_UTF8);
+	}
+#endif
+	StartPagerDisplay();
+	// open and write into pager
+	auto pager_out = popen(sys_pager.c_str(), "w");
+	if (!pager_out) {
+		FinishPagerDisplay();
+	}
+	fwrite(out.data(), 1, out.size(), pager_out);
+	pclose(pager_out);
+}
 
 // this function is called once per chunk
 static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
@@ -142,11 +198,17 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 
 	// terminal output is the default behavior
 	bool terminal_flag = true;
+	bool pager_flag = false;
 
 	auto const it_terminal = parameter_map.find("terminal");
 	auto const it_symbol = parameter_map.find("symbol");
 	auto const it_csv_path = parameter_map.find("path");
 	auto const it_table = parameter_map.find("table_name");
+	auto const it_pager = parameter_map.find("pager");
+
+	if (it_pager != parameter_map.end()) {
+		pager_flag = parameter_map.at("pager").GetValue<bool>();
+	}
 
 	if (it_terminal != parameter_map.end()) {
 		terminal_flag = parameter_map.at("terminal").GetValue<bool>();
@@ -167,18 +229,25 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 		if (it_symbol != parameter_map.end()) {
 			string symbol = parameter_map.at("symbol").GetValue<string>();
 			std::cout << "Tee Operator, Query: " << symbol << "\n";
-		} else {
+			// if pager is used we don't see the output in the final terminal
+		} else if (!pager_flag) {
 			std::cout << "Tee Operator: \n";
 		}
+
 		BoxRendererConfig config;
-		// config.max_rows = 999999;
-		// config.render_mode = RenderMode::COLUMNS;
+		config.max_rows = 10000;
 		BoxRenderer renderer(config);
-		BoxRenderer s {};
-		StringResultRenderer base;
-		s.Render(context.client, global_state.names, global_state.buffered, base);
-		std::cout << s.ToString(context.client, global_state.names, global_state.buffered) << "\n";
-		// renderer.Print(context.client, global_state.names, global_state.buffered);
+		StringResultRenderer result_renderer;
+
+		renderer.Render(context.client, global_state.names, global_state.buffered, result_renderer);
+		string out = renderer.ToString(context.client, global_state.names, global_state.buffered);
+
+		if (pager_flag) {
+			SetupPager(out);
+		} else {
+			// normal printing
+			Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
+		}
 		global_state.printed = true;
 	}
 }
@@ -236,6 +305,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
 	tee_function.named_parameters["table_name"] = LogicalType::VARCHAR;
+	tee_function.named_parameters["pager"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(tee_function);
 
 	ParserExtension tee_parser {};
