@@ -190,6 +190,8 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	}
 	// write everything from the buffer before closing
 	appender.Close();
+	string out = "Table " + table_name + " created and added to the current attached database. \n";
+	Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
 }
 
 static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output) {

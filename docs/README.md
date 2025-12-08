@@ -4,7 +4,7 @@ Tee is a [DuckDB](https://github.com/duckdb/duckdb) extension. The name refers t
 ### Example:
 
 ```sql
-SELECT a FROM tee(SELECT * FROM t);
+> SELECT a FROM tee(SELECT * FROM t);
 
 Tee Operator:
 ┌───────┬───────┐
@@ -28,12 +28,10 @@ The extension is not live yet.
 ## Parameters
 The tee operator can be called with various named parameters using the following syntax:
 ``` SQL
-...
-tee((TABLE t), 
+... FROM tee((TABLE t), 
     named_parameter := ..., 
     named_parameter := ...,
     ...)
-...
 ```
 
 ### The following parameters are implemented:
@@ -49,10 +47,10 @@ tee((TABLE t),
 ## Examples
 ### Symbol:
 ```sql
-
-SELECT a FROM tee((SELECT * FROM t), symbol = 'Called');
+> SELECT a FROM tee((SELECT * FROM t), symbol = 'Called');
 
 Tee Operator, Query: Called
+    
 ┌───────┬───────┐
 │   a   │   b   │
 │ int32 │ int32 │
@@ -71,8 +69,7 @@ Tee Operator, Query: Called
 
 ### Terminal:
 ```sql
-
-SELECT a FROM tee((SELECT * FROM t), terminal = false);
+> SELECT a FROM tee((SELECT * FROM t), terminal = false);
 ┌───────┐
 │   a   │                                                                                                                                                                                                                                                            
 │ int32 │                                                                                                                                                                                                                                                            
@@ -84,10 +81,10 @@ SELECT a FROM tee((SELECT * FROM t), terminal = false);
 
 ### Path:
 ```sql
+> SELECT a FROM tee((SELECT * FROM t), path = 'out.csv');
 
-SELECT a FROM tee((SELECT * FROM t), path = 'out.csv');
+Write to: test_dir/csv_files/out.csv
 
-Write to: test_dir/csv_files_testing/out.csv
 Tee Operator:
 ┌───────┬───────┐
 │   a   │   b   │
@@ -103,12 +100,19 @@ Tee Operator:
 │     0 │                                                                                                                                                                                                                                                            
 │    27 │                                                                                                                                                                                                                                                            
 └───────┘
+
+> .shell cat test_dir/csv_files/out.csv
+        
+a,b
+0,42
+27,8
 ```
 
 ### table_name:
 ```sql
+> SELECT * FROM tee((SELECT * FROM range(5)), table_name = 'huge_range', terminal = true);
 
-SELECT * FROM tee((SELECT * FROM range(5)), table_name = 'huge_range', terminal = true);
+Table huge_range created and added to the current attached database.
 
 ┌───────┐
 │ range │                                                                                                                                                                                                                                                            
@@ -120,6 +124,19 @@ SELECT * FROM tee((SELECT * FROM range(5)), table_name = 'huge_range', terminal 
 │     3 │                                                                                                                                                                                                                                                            
 │     4 │                                                                                                                                                                                                                                                            
 └───────┘
+
+> FROM huge_range;
+
+┌───────┐
+│ range │                                                                                                                                                                                                                                                            
+│ int64 │                                                                                                                                                                                                                                                            
+├───────┤                                                                                                                                                                                                                                                            
+│     0 │                                                                                                                                                                                                                                                            
+│     1 │                                                                                                                                                                                                                                                            
+│     2 │                                                                                                                                                                                                                                                            
+│     3 │                                                                                                                                                                                                                                                            
+│     4 │                                                                                                                                                                                                                                                            
+└───────┘ 
 ```
 
 
