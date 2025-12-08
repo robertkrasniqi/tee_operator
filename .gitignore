@@ -6,8 +6,8 @@ duckdb_unittest_tempdir/
 testext
 test/python/__pycache__/
 .Rhistory
-notes.md
 testdb.db
 OldDocs
-csv_files_testing
+test_dir
 notes.txt
+test_notes.txt

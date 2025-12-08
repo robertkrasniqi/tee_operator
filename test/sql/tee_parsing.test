@@ -1,0 +1,54 @@
+# name: test/sql/tee_parsing.test
+# description: test quack extension
+# group: [sql]
+
+# In tee_parsing.tee, we test the custom tee parser.
+# tee(TABLE t) is not valid SQL syntax, but the parser implements it.
+# It should only work if we don't use named parameters, i.e. only
+# with the table argument.
+
+# enable query verification
+statement ok
+PRAGMA enable_verification
+
+# Require statement will ensure this test is run with this extension loaded
+require tee
+
+# Confirm the extension works
+query II
+SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;
+----
+
+# Only 1 pair of brackets
+query II
+SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
+----
+
+statement ok
+CREATE TABLE a (i INTEGER);
+
+statement ok
+INSERT INTO a VALUES (1),(2),(3);
+
+# Should work
+query I
+SELECT * FROM tee(TABLE a);
+----
+1
+2
+3
+
+# Should work
+query I
+SELECT * FROM tee(SELECT * FROM range(3)) _(x);
+----
+0
+1
+2
+
+# Should fail, 1 bracket to much v
+statement error
+SELECT * FROM tee(FROM RANGE(2)));
+----
+syntax error at or near "FROM"
+

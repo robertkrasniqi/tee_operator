@@ -1,0 +1,55 @@
+# name: test/sql/sql.test
+# description: test tee extension
+# group: [sql]
+
+# enable query verification
+statement ok
+PRAGMA enable_verification
+
+# create table
+statement ok
+CREATE TABLE a (i INTEGER, j INTEGER);
+
+# insertion: 1 affected row
+statement ok
+INSERT INTO a VALUES (42, 84);
+
+query II
+SELECT * FROM a;
+----
+42	84
+
+# create table
+statement ok
+CREATE OR REPLACE TABLE a (i INTEGER, j INTEGER);
+
+# insertion: 1 affected row
+statement ok
+INSERT INTO a VALUES (42, 84);
+
+query II
+SELECT * FROM a;
+----
+42	84
+
+# create table
+statement ok
+CREATE OR REPLACE TABLE a (i INTEGER, j INTEGER);
+
+# insertion: 1 affected row
+statement ok
+INSERT INTO a VALUES (42, 84);
+
+query II
+SELECT * FROM a;
+----
+42	84
+
+# lineitem
+statement ok
+ATTACH 'test_dir/databases/tpch1.db' AS tpch (READONLY);
+
+query I
+SELECT count(*) FROM tpch.lineitem;
+----
+6001215

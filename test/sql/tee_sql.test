@@ -1,4 +1,4 @@
-# name: test/sql/quack.test
+# name: test/sql/tee_sql.test
 # description: test quack extension
 # group: [sql]
 
@@ -10,24 +10,6 @@ Catalog Error: Table Function with name tee does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
 require tee
-
-# Confirm the extension works
-query II
-SELECT * FROM tee((SELECT * FROM (VALUES (1,2)))) _(a,b) WHERE a < 1;
-----
-
-# Only 1 pair of parentheses should work
-query II
-SELECT * FROM tee(SELECT * FROM (VALUES (1,2))) _(a,b) WHERE a < 1;
-----
-
-# Should work
-query I
-SELECT * FROM tee(SELECT * FROM range(3)) _(x);
-----
-0
-1
-2
 
 # SHould work
 query I
