@@ -110,7 +110,7 @@ a,b
 
 ### table_name:
 ```sql
-> SELECT * FROM tee((SELECT * FROM range(5)), table_name = 'huge_range', terminal = true);
+> SELECT * FROM tee((SELECT * FROM range(5)), table_name = 'huge_range', terminal = false);
 
 Table huge_range created and added to the current attached database.
 
