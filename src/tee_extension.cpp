@@ -194,7 +194,8 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
 }
 
-static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output) {
+static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
+                                              DataChunk &output) {
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
 
@@ -229,7 +230,7 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 		}
 
 		BoxRendererConfig config;
-		config.max_rows = 10000;
+		// config.max_rows = 10000;
 		BoxRenderer renderer(config);
 		StringResultRenderer result_renderer;
 
@@ -244,22 +245,6 @@ static void TeeWriteResult(ExecutionContext &context, TableFunctionInput &data_p
 		}
 		global_state.printed = true;
 	}
-}
-
-// gets called once per thread when the thread is done
-static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
-                                              DataChunk &output) {
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
-	atomic<int> &active_threads = global_state.active_threads;
-
-	// decrement active_threads until we have 0 left
-	// 0 means we accessed with the last thread and
-	// the last thread can do the real writing work sss
-	--active_threads;
-
-	if (active_threads == 0) {
-		TeeWriteResult(context, data_p, output);
-	}
 	return OperatorFinalizeResultType::FINISHED;
 }
 
@@ -267,16 +252,6 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<TeeBindData>();
 	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
-}
-
-// gets called once per thread
-static unique_ptr<LocalTableFunctionState> TeeInitLocal(ExecutionContext &context, TableFunctionInitInput &input,
-                                                        GlobalTableFunctionState *global_state_p) {
-	auto &global_state = global_state_p->Cast<TeeGlobalState>();
-	// For every thread, increment by 1. Need that to decrement later to
-	// the correct number of threads really used.
-	++global_state.active_threads;
-	return make_uniq<TeeLocalState>();
 }
 
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, const TableFunctionBindInput &input,
@@ -292,7 +267,6 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context, const TableFunct
 static void LoadInternal(ExtensionLoader &loader) {
 	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, reinterpret_cast<table_function_bind_t>(TeeBind));
 	tee_function.init_global = TeeInitGlobal;
-	tee_function.init_local = TeeInitLocal;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.in_out_function_final = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
@@ -313,6 +287,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
+
 	LoadInternal(loader);
 }
 } // namespace duckdb

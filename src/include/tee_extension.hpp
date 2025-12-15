@@ -34,12 +34,8 @@ struct TeeGlobalState : public GlobalTableFunctionState {
 	mutex lock;
 	// flag to ensure we only print once at end
 	bool printed;
-	// gets incremented for every thread
-	atomic<int> active_threads {0};
 };
 
-// need no functionality
-struct TeeLocalState : public LocalTableFunctionState {};
 
 class TeeExtension : public Extension {
 public:
