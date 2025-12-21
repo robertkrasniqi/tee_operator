@@ -58,6 +58,8 @@ void SetupPager(const string &out) {
 	if (!pager_out) {
 		FinishPagerDisplay();
 	}
+	const string tee = "Tee Pager: \n";
+	fwrite(tee.data(), 1, tee.size(), pager_out);
 	fwrite(out.data(), 1, out.size(), pager_out);
 	pclose(pager_out);
 }
