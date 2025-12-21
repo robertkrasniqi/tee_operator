@@ -62,22 +62,6 @@ void SetupPager(const string &out) {
 	pclose(pager_out);
 }
 
-// this function is called once per chunk
-static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
-                                      DataChunk &output) {
-	// access to the global state object
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
-
-	// lock the global_space to prevent race conditions
-	// and append the current chunk to the global buffer
-	global_state.lock.lock();
-	global_state.buffered.Append(input);
-	output.Reference(input);
-	global_state.lock.unlock();
-
-	return OperatorResultType::NEED_MORE_INPUT;
-}
-
 static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output, string &path) {
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
@@ -160,7 +144,7 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 		};
 	}
 
-	string sql_statement = "CREATE OR REPLACE TABLE " + table_name + "(" + name_types + ")";
+	string sql_statement = "CREATE TABLE IF NOT EXISTS " + table_name + "(" + name_types + ")";
 
 	con.Query(sql_statement);
 
@@ -194,19 +178,58 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
 }
 
-static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFunctionInput &data_p,
-                                              DataChunk &output) {
+// this function is called once per chunk
+static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
+                                      DataChunk &output) {
+	// access to the global state object
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
+
+	// lock the global_space to prevent race conditions
+	// and append the current chunk to the global buffer
+	global_state.lock.lock();
+	global_state.buffered.Append(input);
+	output.Reference(input);
+	global_state.lock.unlock();
 
 	bool pager_flag = false;
 	if (parameter_map.find("pager") != parameter_map.end()) {
 		pager_flag = parameter_map.at("pager").GetValue<bool>();
 	}
-
 	bool terminal_flag = true;
 	if (parameter_map.find("terminal") != parameter_map.end()) {
 		terminal_flag = parameter_map.at("terminal").GetValue<bool>();
+	}
+
+	// Render and print current chunk
+	if (terminal_flag || pager_flag) {
+		BoxRendererConfig config;
+		// config.max_rows = 100;
+		BoxRenderer renderer(config);
+		vector<LogicalType> chunk_types;
+		chunk_types.reserve(input.ColumnCount());
+		for (idx_t i = 0; i < input.ColumnCount(); ++i) {
+			chunk_types.emplace_back(input.data[i].GetType());
+		}
+		ColumnDataCollection chunk_collection(context.client, chunk_types);
+		chunk_collection.Append(input);
+
+		StringResultRenderer result_renderer;
+		renderer.Render(context.client, global_state.names, chunk_collection, result_renderer);
+		string out = renderer.ToString(context.client, global_state.names, chunk_collection);
+
+		if (parameter_map.find("symbol") != parameter_map.end()) {
+			string symbol = parameter_map.at("symbol").GetValue<string>();
+			std::cout << "Tee Operator Query: " << symbol << "\n";
+		} else if (!pager_flag) {
+			std::cout << "Tee Operator: \n";
+		}
+
+		if (pager_flag) {
+			SetupPager(out);
+		} else if (terminal_flag) {
+			Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
+		}
 	}
 
 	if (parameter_map.find("path") != parameter_map.end()) {
@@ -219,35 +242,8 @@ static OperatorFinalizeResultType TeeFinalize(ExecutionContext &context, TableFu
 		TeeTableWriter(context, data_p, output, table_name);
 	}
 
-	// prints only once
-	if (!global_state.printed && terminal_flag) {
-		if (parameter_map.find("symbol") != parameter_map.end()) {
-			string symbol = parameter_map.at("symbol").GetValue<string>();
-			std::cout << "Tee Operator, Query: " << symbol << "\n";
-			// if pager is used we don't see the output in the final terminal
-		} else if (!pager_flag) {
-			std::cout << "Tee Operator: \n";
-		}
-
-		BoxRendererConfig config;
-		// config.max_rows = 10000;
-		BoxRenderer renderer(config);
-		StringResultRenderer result_renderer;
-
-		renderer.Render(context.client, global_state.names, global_state.buffered, result_renderer);
-		string out = renderer.ToString(context.client, global_state.names, global_state.buffered);
-
-		if (pager_flag) {
-			SetupPager(out);
-		} else {
-			// normal printing
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
-		}
-		global_state.printed = true;
-	}
-	return OperatorFinalizeResultType::FINISHED;
+	return OperatorResultType::NEED_MORE_INPUT;
 }
-
 // this function is called once at the start of execution to create the global state
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<TeeBindData>();
@@ -262,13 +258,20 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context, const TableFunct
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
 }
 
+static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
+                                                   idx_t bind_index, vector<string> &return_names) {
+	return_names = input.input_table_names;
+	return nullptr;
+}
+
 // called when the extension is loaded
 // registers the tee table function and the parser extension
 static void LoadInternal(ExtensionLoader &loader) {
 	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, reinterpret_cast<table_function_bind_t>(TeeBind));
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
-	tee_function.in_out_function_final = TeeFinalize;
+	tee_function.bind_operator = TeeBindOperator;
+	// tee_function.in_out_function_final = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
@@ -287,7 +290,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
-
 	LoadInternal(loader);
 }
 } // namespace duckdb
