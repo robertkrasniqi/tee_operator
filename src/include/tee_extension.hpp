@@ -26,20 +26,28 @@ struct TeeBindData : public FunctionData {
 };
 
 struct TeeGlobalState : public GlobalTableFunctionState {
-	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p, const vector<string> &names_p)
-	    : buffered(context, types_p), names(names_p), printed(false) {
-	}
+	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p, const vector<string> &names_p);
+	~TeeGlobalState() override;
 	ColumnDataCollection buffered;
 	vector<string> names;
+	vector<LogicalType> types;
+	ClientContext *context_ptr;
 	mutex lock;
-	// flag to ensure we only print once at end
-	bool printed;
+	bool printed_flag;
+	// cached parameters
+	bool parameter_flag;
+	bool pager_flag;
+	bool terminal_flag;
+	bool symbol_flag;
+	string symbol;
+	bool path_flag;
+	string path;
+	bool table_name_flag;
+	string table_name;
 };
-
 
 class TeeExtension : public Extension {
 public:
-	// load() is called when the extension is installed into a database
 	void Load(ExtensionLoader &loader) override;
 
 	std::string Name() override {

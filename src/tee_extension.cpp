@@ -57,31 +57,38 @@ void SetupPager(const string &out) {
 	auto pager_out = popen(sys_pager.c_str(), "w");
 	if (!pager_out) {
 		FinishPagerDisplay();
+		return;
 	}
 	const string tee = "Tee Pager: \n";
 	fwrite(tee.data(), 1, tee.size(), pager_out);
 	fwrite(out.data(), 1, out.size(), pager_out);
 	pclose(pager_out);
+	FinishPagerDisplay();
 }
 
-static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output, string &path) {
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+TeeGlobalState::TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p,
+                               const vector<string> &names_p)
+    : buffered(context, types_p), names(names_p), types(types_p), context_ptr(&context), printed_flag(false),
+      parameter_flag(false), pager_flag(false), terminal_flag(true), symbol_flag(false), path_flag(false),
+      table_name_flag(false) {
+}
 
+static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
+                         const string &path) {
 	// write always in my local dir
 	// path = "test_dir/csv_files_testing/" + path;
 	std::cout << "Write to: " << path << "\n";
 
-	FileSystem &fs = FileSystem::GetFileSystem(context.client);
+	FileSystem &fs = FileSystem::GetFileSystem(context);
 
 	// prepare options
 	CSVReaderOptions options;
-	options.name_list = global_state.names;
+	options.name_list = names;
 	// set own names
 	options.columns_set = true;
-	options.force_quote.resize(global_state.names.size(), false);
+	options.force_quote.resize(names.size(), false);
 
-	// initialize state
-	CSVWriterState write_state(context.client,
+	CSVWriterState write_state(context,
 	                           4096ULL * 8ULL); // in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
 	// initialize writer
 	CSVWriter writer(options, fs, path, FileCompressionType::UNCOMPRESSED, false);
@@ -92,14 +99,14 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 	// scan/initialize ColumnDataCollection with our buffered data
 	// this is the place where our column data lives
 	ColumnDataScanState scan_state;
-	global_state.buffered.InitializeScan(scan_state);
+	buffered.InitializeScan(scan_state);
 
 	// initialize chunk
 	DataChunk chunk;
-	global_state.buffered.InitializeScanChunk(scan_state, chunk);
+	buffered.InitializeScanChunk(scan_state, chunk);
 
 	// as long as we have data, write it
-	while (global_state.buffered.Scan(scan_state, chunk)) {
+	while (buffered.Scan(scan_state, chunk)) {
 		// CSVWriter expects varchar columns. For that, we cast our current chunk into a new chunk
 		// which has only varchar columns.
 		DataChunk varchar_chunk;
@@ -109,7 +116,7 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 			varchar_vector.emplace_back(LogicalType::VARCHAR);
 		}
 		// initialize chunk with the same client context
-		varchar_chunk.Initialize(context.client, varchar_vector);
+		varchar_chunk.Initialize(context, varchar_vector);
 		idx_t rows = chunk.size();
 		for (idx_t col = 0; col < chunk.ColumnCount(); ++col) {
 			VectorOperations::DefaultCast(chunk.data[col], varchar_chunk.data[col], rows, false);
@@ -126,16 +133,10 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 	writer.Close();
 }
 
-static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &output,
-                           string &table_name) {
-	auto &bind_data = data_p.bind_data->Cast<TeeBindData>();
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
-
-	auto &db = context.client.db->GetDatabase(context.client);
+static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
+                           const vector<LogicalType> &types, const string &table_name) {
+	auto &db = context.db->GetDatabase(context);
 	Connection con(db);
-
-	vector<string> names = bind_data.names;
-	vector<LogicalType> types = bind_data.types;
 
 	// copy the name and type schema of the current subquery for the new table
 	string name_types = "";
@@ -155,12 +156,12 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	Appender appender(con, table_name);
 
 	ColumnDataScanState scan_state;
-	global_state.buffered.InitializeScan(scan_state);
+	buffered.InitializeScan(scan_state);
 
 	DataChunk chunk;
-	global_state.buffered.InitializeScanChunk(scan_state, chunk);
+	buffered.InitializeScanChunk(scan_state, chunk);
 
-	while (global_state.buffered.Scan(scan_state, chunk)) {
+	while (buffered.Scan(scan_state, chunk)) {
 		idx_t rows = chunk.size();
 		for (idx_t cur_row = 0; cur_row < rows; cur_row++) {
 			appender.BeginRow();
@@ -180,72 +181,89 @@ static void TeeTableWriter(ExecutionContext &context, TableFunctionInput &data_p
 	Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
 }
 
-// this function is called once per chunk
-static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
-                                      DataChunk &output) {
-	// access to the global state object
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
-	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
-
-	// lock the global_space to prevent race conditions
-	// and append the current chunk to the global buffer
-	global_state.lock.lock();
-	global_state.buffered.Append(input);
-	output.Reference(input);
-	global_state.lock.unlock();
-
-	bool pager_flag = false;
-	if (parameter_map.find("pager") != parameter_map.end()) {
-		pager_flag = parameter_map.at("pager").GetValue<bool>();
+// When the destructor is called, we know that the pipeline is done, and we can print / call pager.
+TeeGlobalState::~TeeGlobalState() {
+	if (printed_flag) {
+		return;
 	}
-	bool terminal_flag = true;
-	if (parameter_map.find("terminal") != parameter_map.end()) {
-		terminal_flag = parameter_map.at("terminal").GetValue<bool>();
-	}
-
-	// Render and print current chunk
-	if (terminal_flag || pager_flag) {
+	printed_flag = true;
+	if (pager_flag || terminal_flag) {
 		BoxRendererConfig config;
 		// config.max_rows = 100;
 		BoxRenderer renderer(config);
-		vector<LogicalType> chunk_types;
-		chunk_types.reserve(input.ColumnCount());
-		for (idx_t i = 0; i < input.ColumnCount(); ++i) {
-			chunk_types.emplace_back(input.data[i].GetType());
-		}
-		ColumnDataCollection chunk_collection(context.client, chunk_types);
-		chunk_collection.Append(input);
 
-		StringResultRenderer result_renderer;
-		renderer.Render(context.client, global_state.names, chunk_collection, result_renderer);
-		string out = renderer.ToString(context.client, global_state.names, chunk_collection);
-
-		if (parameter_map.find("symbol") != parameter_map.end()) {
-			string symbol = parameter_map.at("symbol").GetValue<string>();
-			std::cout << "Tee Operator Query: " << symbol << "\n";
+		// pager doesnt print so symbol should not be printed either
+		if (symbol_flag && !pager_flag) {
+			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator Query: " + symbol + "\n");
 		} else if (!pager_flag) {
-			std::cout << "Tee Operator: \n";
+			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator: \n");
 		}
-
 		if (pager_flag) {
+			string out = renderer.ToString(*context_ptr, names, buffered);
+			// Call pager
 			SetupPager(out);
-		} else if (terminal_flag) {
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
+		} else {
+			renderer.Print(*context_ptr, names, buffered);
 		}
 	}
-
-	if (parameter_map.find("path") != parameter_map.end()) {
-		string path = parameter_map.at("path").GetValue<string>();
-		TeeCSVWriter(context, data_p, output, path);
+	if (path_flag) {
+		TeeCSVWriter(*context_ptr, buffered, names, path);
 	}
-
-	if (parameter_map.find("table_name") != parameter_map.end()) {
-		string table_name = parameter_map.at("table_name").GetValue<string>();
-		TeeTableWriter(context, data_p, output, table_name);
+	if (table_name_flag) {
+		TeeTableWriter(*context_ptr, buffered, names, types, table_name);
 	}
+}
 
+// this function is called once per chunk
+static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
+                                      DataChunk &output) {
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
+
+	// lock the global_state to prevent race conditions
+	// and handle the current chunk
+	global_state.lock.lock();
+
+	// remember parameters once (if there are any parameters)
+	if (!global_state.parameter_flag) {
+		global_state.parameter_flag = true;
+
+		global_state.pager_flag = false;
+		if (parameter_map.find("pager") != parameter_map.end()) {
+			global_state.pager_flag = parameter_map.at("pager").GetValue<bool>();
+		}
+
+		global_state.terminal_flag = true;
+		if (parameter_map.find("terminal") != parameter_map.end()) {
+			global_state.terminal_flag = parameter_map.at("terminal").GetValue<bool>();
+		}
+
+		global_state.symbol_flag = false;
+		if (parameter_map.find("symbol") != parameter_map.end()) {
+			global_state.symbol_flag = true;
+			global_state.symbol = parameter_map.at("symbol").GetValue<string>();
+		}
+
+		global_state.path_flag = false;
+		if (parameter_map.find("path") != parameter_map.end()) {
+			global_state.path_flag = true;
+			global_state.path = parameter_map.at("path").GetValue<string>();
+		}
+
+		global_state.table_name_flag = false;
+		if (parameter_map.find("table_name") != parameter_map.end()) {
+			global_state.table_name_flag = true;
+			global_state.table_name = parameter_map.at("table_name").GetValue<string>();
+		}
+	}
+	// buffer the chunk
+	global_state.buffered.Append(input);
+	output.Reference(input);
+
+	global_state.lock.unlock();
 	return OperatorResultType::NEED_MORE_INPUT;
 }
+
 // this function is called once at the start of execution to create the global state
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<TeeBindData>();
