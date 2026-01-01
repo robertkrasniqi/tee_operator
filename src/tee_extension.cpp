@@ -68,7 +68,7 @@ static void TeeCSVWriter(const ExecutionContext &context, TableFunctionInput &da
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
 	// write always in my local dir
-	path = "test_dir/csv_files_testing/" + path;
+	// path = "test_dir/csv_files_testing/" + path;
 	std::cout << "Write to: " << path << "\n";
 
 	FileSystem &fs = FileSystem::GetFileSystem(context.client);
