@@ -45,9 +45,6 @@ static string CustomTeeParser(const string &query) {
 		}
 		pos_begin = pos_curr;
 	}
-#ifdef DEBUG
-	std::cout << "\n" << "Parsed: " << result_query << "\n \n";
-#endif
 	return result_query;
 }
 
@@ -77,7 +74,7 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 		string idxErrorTemp = errorMessage.substr(leftPartIdx, (rightPartIdx - 1) - leftPartIdx);
 		// convert string to int
 		int64_t idxParseError = std::stoll(idxErrorTemp);
-		std::cout << idxParseError << "\n";
+		//std::cout << idxParseError << "\n";
 #endif
 		return ParserOverrideResult();
 	}

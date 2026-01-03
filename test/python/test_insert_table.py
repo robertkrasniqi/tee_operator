@@ -7,7 +7,7 @@ DUCKDB = os.path.expanduser("~/tee_operator/build/debug/duckdb")
 
 @pytest.fixture
 def workdir(tmp_path):
-    base_dir = tmp_path / "csv_files_testing"
+    base_dir = tmp_path / "table_name_testing"
     base_dir.mkdir()
 
     old_cwd = os.getcwd()
@@ -22,18 +22,33 @@ def workdir(tmp_path):
     os.chdir(old_cwd)
     shutil.rmtree(base_dir, ignore_errors=True)
 
-
-def test_basic_query(workdir):
-    sql = """
-          SELECT * FROM tee((SELECT 42 AS 'a'), path = 'out.csv');
-          """
-
-    result = subprocess.run(
-        [DUCKDB, "-c", sql],
+def run_duckdb(sql, db_path):
+    return subprocess.run(
+        [DUCKDB, db_path, "-c", sql],
         text=True,
         capture_output=True,
         check=True
     )
+
+def test_small_table(workdir):
+    db_path = workdir / "temp.db"
+    out_csv = workdir / "check.csv"
+
+    sql = """
+          SELECT * FROM tee((SELECT 42 AS 'a'), table_name = 'temp_table');
+          """
+
+    result = run_duckdb(sql, db_path)
+
+    sql_check = f"""
+                COPY (SELECT * FROM temp_table) TO '{out_csv}';
+                """
+
+    run_duckdb(sql_check, db_path)
+
+    assert out_csv.exists()
+    lines = out_csv.read_text().splitlines()
+    assert lines == ["a", "42"]
 
     print("STDOUT:", result.stdout)
     print("STDERR: \n", result.stderr)
@@ -41,38 +56,32 @@ def test_basic_query(workdir):
 
     assert result.returncode == 0
 
-    output_file = workdir / "out.csv"
-    assert output_file.exists()
+def test_big_table(workdir):
+    db_path = workdir / "temp.db"
+    out_csv = workdir / "check.csv"
 
-    lines = output_file.read_text().splitlines()
-    assert len(lines) == 2
+    row_count = 987654
 
-    # Check header
-    assert lines[0] == "a"
+    sql =  f"""
+            SELECT * FROM tee((
+                  SELECT
+                  a,
+                  10 AS b,
+                  a % 9 AS c,
+                  FLOOR(a / 5) :: int AS d
+            FROM range({row_count}) AS _(a)), table_name = 'temp_table');
+            """
 
-    # Check second line
-    first_row = lines[1].split(",")
-    assert first_row[0] == "42"
+    result = run_duckdb(sql, db_path)
 
-def test_large_query(workdir):
-    row_count = 4097
 
-    sql = f"""
-    SELECT * FROM tee((
-          SELECT
-          a,
-          10 AS b,
-          a % 9 AS c,
-          (a / 5) :: int AS d
-    FROM range({row_count}) AS _(a)), path = 'out.csv');
-    """
+    sql_check = f"""
+                COPY (SELECT * FROM temp_table) TO '{out_csv}';
+                """
 
-    result = subprocess.run(
-        [DUCKDB, "-c", sql],
-        text=True,
-        capture_output=True,
-        check=True
-    )
+    run_duckdb(sql_check, db_path)
+
+    assert out_csv.exists()
 
     print("STDOUT:", result.stdout)
     print("STDERR:", result.stderr)
@@ -80,11 +89,7 @@ def test_large_query(workdir):
 
     assert result.returncode == 0
 
-    output_file = workdir / "out.csv"
-    assert output_file.exists()
-
-    lines = output_file.read_text().splitlines()
-
+    lines = out_csv.read_text().splitlines()
     assert len(lines) == row_count + 1
 
     # Check header
