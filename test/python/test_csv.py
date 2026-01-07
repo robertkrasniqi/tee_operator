@@ -63,7 +63,7 @@ def test_large_query(workdir):
           a,
           10 AS b,
           a % 9 AS c,
-          (a / 5) :: int AS d
+          FLOOR(a / 5) :: int AS d
     FROM range({row_count}) AS _(a)), path = 'out.csv');
     """
 
