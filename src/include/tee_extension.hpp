@@ -3,6 +3,7 @@
 #include "duckdb.hpp"
 #include "tee_parser.hpp"
 #include "duckdb/common/box_renderer.hpp"
+#include "tee_operator.hpp"
 
 namespace duckdb {
 
@@ -45,6 +46,65 @@ struct TeeGlobalState : public GlobalTableFunctionState {
 	bool table_name_flag;
 	string table_name;
 };
+
+//===----------------------------------------------------------------------===//
+//
+// TEE-OPERATOR
+//
+//===----------------------------------------------------------------------===//
+/*
+class TeeOpState;
+
+class TeeOp : public PhysicalOperator {
+public:
+	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::INOUT_FUNCTION;
+
+public:
+	TeeOp(PhysicalPlan &physical_plan, string ctename, idx_t table_index, vector<LogicalType> types, bool union_all,
+		  PhysicalOperator &top, PhysicalOperator &bottom, idx_t estimated_cardinality);
+	~TeeOp() override;
+
+	ColumnDataCollection buffered;
+	vector<string> names;
+	vector<LogicalType> types;
+	ClientContext *context_ptr;
+	mutex lock;
+	bool printed_flag;
+	// cached parameters
+	bool parameter_flag;
+	bool pager_flag;
+	bool terminal_flag;
+	bool symbol_flag;
+	string symbol;
+	bool path_flag;
+	string path;
+	bool table_name_flag;
+	string table_name;
+
+	// Source interface
+	SourceResultType GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+									 OperatorSourceInput &input) const override;
+
+	bool IsSource() const override {
+		return true;
+	}
+
+	bool ParallelSink() const override {
+		return true;
+	}
+
+	InsertionOrderPreservingMap<string> ParamsToString() const override;
+
+	void BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) override;
+
+	vector<const_reference<PhysicalOperator>> GetSources() const override;
+};
+*/
+//===----------------------------------------------------------------------===//
+//
+// TEE-OPERATOR-END
+//
+//===----------------------------------------------------------------------===//
 
 class TeeExtension : public Extension {
 public:
