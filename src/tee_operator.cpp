@@ -8,12 +8,26 @@
 
 namespace duckdb {
 
-PhysicalTeeOperator::PhysicalTeeOperator(PhysicalPlan &physical_plan, PhysicalOperatorType type,
-                                         vector<LogicalType> types, idx_t estimated_cardinality)
-    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types), estimated_cardinality) {
+PhysicalTeeOperator::PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types,
+                                         idx_t estimated_cardinality)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::TABLE_SCAN, std::move(types), estimated_cardinality) {
 }
+
 PhysicalTeeOperator::~PhysicalTeeOperator() {
-
 }
 
-}; // namespace duckdb
+unique_ptr<OperatorState> PhysicalTeeOperator::GetOperatorState(ExecutionContext &) const {
+	return make_uniq<OperatorState>();
+}
+
+OperatorResultType PhysicalTeeOperator::Execute(ExecutionContext &, DataChunk &input, DataChunk &output,
+                                                GlobalOperatorState &, OperatorState &) const {
+	output.Reference(input);
+	return OperatorResultType::NEED_MORE_INPUT;
+}
+
+string PhysicalTeeOperator::GetName() const {
+	return "tee";
+}
+
+} // namespace duckdb

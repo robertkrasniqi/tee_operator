@@ -1,43 +1,34 @@
 #pragma once
 
-#include "duckdb/common/types/column/column_data_collection.hpp"
 #include "tee_parser.hpp"
 #include "tee_extension.hpp"
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
-#include "duckdb/planner/operator_extension.hpp"
 #include "duckdb/execution/physical_operator.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/planner/binder.hpp"
-#include "duckdb/parser/sql_statement.hpp"
-#include "duckdb/parser/statement/select_statement.hpp"
-#include "duckdb/common/mutex.hpp"
+#include <duckdb/execution/column_binding_resolver.hpp>
 #include <duckdb/main/connection.hpp>
-#include <duckdb/planner/planner.hpp>
-#include <duckdb/planner/operator/logical_projection.hpp>
 
 namespace duckdb {
 class PhysicalTeeOperator : public PhysicalOperator {
 public:
-	static constexpr PhysicalOperatorType TYPE = PhysicalOperatorType::EXTENSION;
+	static constexpr PhysicalOperatorType TYPE = PhysicalOperatorType::PROJECTION;
 
-	PhysicalTeeOperator(PhysicalPlan &physical_plan, PhysicalOperatorType type, vector<LogicalType> types,
-	                    idx_t estimated_cardinality);
+	PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, idx_t estimated_cardinality);
+
 	~PhysicalTeeOperator() override;
 
-	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override {
-		return make_uniq<OperatorState>();
+	bool RequiresFinalExecute() const override {
+		// should be true but crashes right now
+		return false;
 	}
+
+	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override;
 
 	OperatorResultType Execute(ExecutionContext &context, DataChunk &input, DataChunk &output,
-	                           GlobalOperatorState &gstate, OperatorState &state) const override {
-		output.Reference(input);
-		return OperatorResultType::NEED_MORE_INPUT;
-	}
+	                           GlobalOperatorState &gstate, OperatorState &state) const override;
 
-public:
-	string GetName() const override {
-		return "tee";
-	}
+	string GetName() const override;
 };
 
 class LogicalTeeOperator : public LogicalExtensionOperator {
@@ -45,40 +36,46 @@ public:
 	LogicalTeeOperator() : LogicalExtensionOperator() {
 	}
 
+	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_DUMMY_SCAN;
+	idx_t bind_index = DConstants::INVALID_INDEX;
+
 	string GetExtensionName() const override {
 		return "tee";
 	}
 
 	void ResolveTypes() override {
+		if (children.empty()) {
+			return;
+		}
 		types = children[0]->types;
+	}
+
+	bool RequireOptimizer() const override {
+		// this is true on default - rn it's for testing
+		return false;
+	}
+
+	idx_t GetRootIndex() override {
+		if (children.empty()) {
+			return bind_index;
+		}
+		return children[0]->GetRootIndex();
+	}
+
+	vector<ColumnBinding> GetColumnBindings() override {
+		if (children.empty()) {
+			return LogicalOperator::GenerateColumnBindings(bind_index, types.size());
+		}
+		return children[0]->GetColumnBindings();
 	}
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
 		auto &child = planner.CreatePlan(*children[0]);
 
-		auto &tee = planner.Make<PhysicalTeeOperator>(
-			PhysicalOperatorType::EXTENSION,
-			child.types,
-			child.estimated_cardinality);
+		auto &tee = planner.Make<PhysicalTeeOperator>(child.types, child.estimated_cardinality);
 		tee.children.push_back(child);
+
 		return tee;
-	}
-};
-
-BoundStatement TeeBindParser(ClientContext &context, Binder &binder, OperatorExtensionInfo *info,
-                             SQLStatement &statement);
-
-struct TeeOperatorExtension : public OperatorExtension {
-	TeeOperatorExtension() {
-		Bind = TeeBindParser;
-	}
-
-	string GetName() override {
-		return "tee";
-	}
-
-	unique_ptr<LogicalExtensionOperator> Deserialize(Deserializer &) override {
-		return make_uniq<LogicalTeeOperator>();
 	}
 };
 } // namespace duckdb

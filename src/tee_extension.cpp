@@ -7,8 +7,10 @@
 #include "duckdb/common/printer.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/planner/operator_extension.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 
 #include <utility>
+#include <duckdb/parser/tableref/table_function_ref.hpp>
 
 namespace duckdb {
 
@@ -275,29 +277,60 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context
 	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
 }
 
-static unique_ptr<FunctionData> TeeBind(ClientContext &context, const TableFunctionBindInput &input,
+static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = input.input_table_types;
 	names = input.input_table_names;
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
 }
 
-static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &, TableFunctionBindInput &input, idx_t,
-                                                   vector<string> &return_names) {
-	return_names = input.input_table_names;
+static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
+                                                   idx_t bind_index, vector<string> &return_names) {
+	auto return_types = input.input_table_types;
+	auto names = input.input_table_names;
+
+	if (return_types.empty() && !names.empty()) {
+		return_types.resize(names.size(), LogicalType::ANY);
+	}
+
+	auto &alias_names = input.ref.column_name_alias;
+	if (!alias_names.empty()) {
+		if (alias_names.size() != names.size()) {
+			throw BinderException("tee: column alias count does not match output columns");
+		}
+		names = alias_names;
+	}
+
+	return_names = names;
+
+	auto bind_data = make_uniq<TeeBindData>(names, return_types, input.named_parameters);
+
+	auto get = make_uniq<LogicalGet>(bind_index, input.table_function, std::move(bind_data), return_types, names,
+	                                 virtual_column_map_t());
+
+	get->parameters = input.inputs;
+	get->named_parameters = input.named_parameters;
+	get->input_table_types = input.input_table_types;
+	get->input_table_names = input.input_table_names;
+
+	for (idx_t i = 0; i < return_types.size(); i++) {
+		get->AddColumnId(i);
+	}
+
 	auto tee = make_uniq<LogicalTeeOperator>();
-	tee->ResolveTypes();
-	tee->ResolveOperatorTypes();
+	tee->children.push_back(std::move(get));
 	return tee;
 }
 
 // called when the extension is loaded
 // registers the tee table function and the parser extension
 static void LoadInternal(ExtensionLoader &loader) {
-	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, reinterpret_cast<table_function_bind_t>(TeeBind));
+	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, TeeBind);
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
-	// tee_function.bind_operator = TeeBindOperator;
+	tee_function.bind_operator = TeeBindOperator;
+	// tee_function.projection_pushdown = true;
+	// tee_function.filter_pushdown = true;
 	// tee_function.in_out_function_final = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
@@ -306,14 +339,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.named_parameters["pager"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(tee_function);
 
+	/* disable the parser for now
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
-
 	config.options.allow_parser_override_extension = "fallback";
 	TeeParserExtension TeeExtensionParser;
 	config.parser_extensions.push_back(TeeExtensionParser);
-
-	config.operator_extensions.push_back(make_uniq<TeeOperatorExtension>());
+	*/
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
