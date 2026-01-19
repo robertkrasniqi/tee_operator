@@ -17,35 +17,83 @@ PhysicalTeeOperator::PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<Log
 PhysicalTeeOperator::~PhysicalTeeOperator() {
 }
 
-OperatorResultType PhysicalTeeOperator::Execute(ExecutionContext &context, DataChunk &input, DataChunk &output,
-                                                GlobalOperatorState &gstate, OperatorState &state) const {
-	auto &tee_state = gstate.Cast<TeeGlobalOperatorState>();
-
-	tee_state.lock.lock();
-
-	tee_state.buffered.Append(input);
-	output.Reference(input);
-	std::cout << "this is a execute \n";
-
-	tee_state.lock.unlock();
-	return OperatorResultType::NEED_MORE_INPUT;
+string PhysicalTeeOperator::GetName() const {
+	return "tee";
 }
 
-OperatorFinalizeResultType PhysicalTeeOperator::FinalExecute(ExecutionContext &context, DataChunk &chunk,
-                                                             GlobalOperatorState &gstate, OperatorState &state) const {
-	auto &tee_state = gstate.Cast<TeeGlobalOperatorState>();
+//===--------------------------------------------------------------------===//
+// Sink
+//===--------------------------------------------------------------------===//
 
-	std::cout << "Final Execute \n";
+class TeeSinkState : public GlobalSinkState {
+public:
+	explicit TeeSinkState(ClientContext &context, const PhysicalTeeOperator &op)
+	    : buffered_sink(context, op.GetTypes()) {
+	}
+	mutex lock;
+	ColumnDataCollection buffered_sink;
+	ColumnDataScanState scan_state;
+	bool initialized = false;
+};
+
+unique_ptr<GlobalSinkState> PhysicalTeeOperator::GetGlobalSinkState(ClientContext &context) const {
+	return make_uniq<TeeSinkState>(context, *this);
+}
+
+SinkResultType PhysicalTeeOperator::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
+	auto &state = input.global_state.Cast<TeeSinkState>();
+
+	state.lock.lock();
+	{
+		state.buffered_sink.Append(chunk);
+	}
+	state.lock.unlock();
+	return SinkResultType::NEED_MORE_INPUT;
+}
+
+SinkFinalizeType PhysicalTeeOperator::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
+                                               OperatorSinkFinalizeInput &input) const {
+	auto &state = input.global_state.Cast<TeeSinkState>();
+
 	BoxRendererConfig config;
 	BoxRenderer renderer(config);
 
-	Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator Operator:\n");
-	renderer.Print(context.client, names, tee_state.buffered);
+	Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator Operator: \n");
+	renderer.Print(context, names, state.buffered_sink);
 
-	return OperatorFinalizeResultType::FINISHED;
-};
-string PhysicalTeeOperator::GetName() const {
-	return "tee";
+	return SinkFinalizeType::READY;
+}
+//===--------------------------------------------------------------------===//
+// Source
+//===--------------------------------------------------------------------===//
+
+SourceResultType PhysicalTeeOperator::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+                                                      OperatorSourceInput &input) const {
+	auto &state = sink_state->Cast<TeeSinkState>();
+
+	if (!state.initialized) {
+		state.buffered_sink.InitializeScan(state.scan_state);
+		state.initialized = true;
+	}
+
+	state.buffered_sink.Scan(state.scan_state, chunk);
+
+	return chunk.size() == 0 ? SourceResultType::FINISHED : SourceResultType::HAVE_MORE_OUTPUT;
+}
+
+vector<const_reference<PhysicalOperator>> PhysicalTeeOperator::GetSources() const {
+	return {*this};
+}
+
+void PhysicalTeeOperator::BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) {
+	op_state.reset();
+	sink_state.reset();
+
+	auto &state = meta_pipeline.GetState();
+	state.SetPipelineSource(current, *this);
+
+	auto &child_pipeline = meta_pipeline.CreateChildMetaPipeline(current, *this);
+	child_pipeline.Build(children[0]);
 }
 
 } // namespace duckdb

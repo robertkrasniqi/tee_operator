@@ -11,6 +11,8 @@
 #include "duckdb/main/config.hpp"
 
 namespace duckdb {
+
+// probably unnecessary; maybe delete
 struct TeeGlobalOperatorState : public GlobalOperatorState {
 	TeeGlobalOperatorState(ClientContext &context, vector<LogicalType> types_p, vector<string> names_p)
 	    : buffered(context, types_p), types(std::move(types_p)), names(std::move(names_p)) {
@@ -26,10 +28,31 @@ public:
 	static constexpr PhysicalOperatorType TYPE = PhysicalOperatorType::EXTENSION;
 	PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, vector<string> names,
 	                    idx_t estimated_cardinality);
-
 	~PhysicalTeeOperator() override;
 
 	vector<string> names;
+
+	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
+
+	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
+
+	SinkFinalizeType Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
+	                          OperatorSinkFinalizeInput &input) const override;
+
+	bool IsSink() const override {
+		return true;
+	}
+
+	bool IsSource() const override {
+		return true;
+	}
+
+	void BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) override;
+
+	vector<const_reference<PhysicalOperator>> GetSources() const override;
+
+	SourceResultType GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+	                                 OperatorSourceInput &input) const override;
 
 	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override {
 		return make_uniq<OperatorState>();
@@ -38,16 +61,17 @@ public:
 	unique_ptr<GlobalOperatorState> GetGlobalOperatorState(ClientContext &context) const override {
 		return make_uniq<TeeGlobalOperatorState>(context, types, names);
 	}
+
+	/*
+	// No need
 	bool RequiresFinalExecute() const override {
-		return true;
+	    return false;
 	}
 
-	OperatorFinalizeResultType FinalExecute(ExecutionContext &context, DataChunk &chunk, GlobalOperatorState &gstate,
-	                                        OperatorState &state) const override;
-
+	// No need
 	OperatorResultType Execute(ExecutionContext &context, DataChunk &input, DataChunk &output,
 	                           GlobalOperatorState &gstate, OperatorState &state) const override;
-
+	*/
 	string GetName() const override;
 };
 
@@ -73,7 +97,7 @@ public:
 
 	bool RequireOptimizer() const override {
 		// this is true on default - rn it's for testing
-		return false;
+		return true;
 	}
 
 	idx_t GetRootIndex() override {
