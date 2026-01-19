@@ -8,22 +8,42 @@
 #include "duckdb/planner/binder.hpp"
 #include <duckdb/execution/column_binding_resolver.hpp>
 #include <duckdb/main/connection.hpp>
+#include "duckdb/main/config.hpp"
 
 namespace duckdb {
+struct TeeGlobalOperatorState : public GlobalOperatorState {
+	TeeGlobalOperatorState(ClientContext &context, vector<LogicalType> types_p, vector<string> names_p)
+	    : buffered(context, types_p), types(std::move(types_p)), names(std::move(names_p)) {
+	}
+	mutex lock;
+	ColumnDataCollection buffered;
+	vector<LogicalType> types;
+	vector<string> names;
+};
+
 class PhysicalTeeOperator : public PhysicalOperator {
 public:
-	static constexpr PhysicalOperatorType TYPE = PhysicalOperatorType::PROJECTION;
-
-	PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, idx_t estimated_cardinality);
+	static constexpr PhysicalOperatorType TYPE = PhysicalOperatorType::EXTENSION;
+	PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, vector<string> names,
+	                    idx_t estimated_cardinality);
 
 	~PhysicalTeeOperator() override;
 
-	bool RequiresFinalExecute() const override {
-		// should be true but crashes right now
-		return false;
+	vector<string> names;
+
+	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override {
+		return make_uniq<OperatorState>();
 	}
 
-	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override;
+	unique_ptr<GlobalOperatorState> GetGlobalOperatorState(ClientContext &context) const override {
+		return make_uniq<TeeGlobalOperatorState>(context, types, names);
+	}
+	bool RequiresFinalExecute() const override {
+		return true;
+	}
+
+	OperatorFinalizeResultType FinalExecute(ExecutionContext &context, DataChunk &chunk, GlobalOperatorState &gstate,
+	                                        OperatorState &state) const override;
 
 	OperatorResultType Execute(ExecutionContext &context, DataChunk &input, DataChunk &output,
 	                           GlobalOperatorState &gstate, OperatorState &state) const override;
@@ -36,7 +56,8 @@ public:
 	LogicalTeeOperator() : LogicalExtensionOperator() {
 	}
 
-	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_DUMMY_SCAN;
+	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_GET;
+	vector<string> names;
 	idx_t bind_index = DConstants::INVALID_INDEX;
 
 	string GetExtensionName() const override {
@@ -71,8 +92,8 @@ public:
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
 		auto &child = planner.CreatePlan(*children[0]);
+		auto &tee = planner.Make<PhysicalTeeOperator>(child.types, names, child.estimated_cardinality);
 
-		auto &tee = planner.Make<PhysicalTeeOperator>(child.types, child.estimated_cardinality);
 		tee.children.push_back(child);
 
 		return tee;

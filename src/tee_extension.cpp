@@ -288,23 +288,9 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
                                                    idx_t bind_index, vector<string> &return_names) {
 	auto return_types = input.input_table_types;
 	auto names = input.input_table_names;
-
-	if (return_types.empty() && !names.empty()) {
-		return_types.resize(names.size(), LogicalType::ANY);
-	}
-
-	auto &alias_names = input.ref.column_name_alias;
-	if (!alias_names.empty()) {
-		if (alias_names.size() != names.size()) {
-			throw BinderException("tee: column alias count does not match output columns");
-		}
-		names = alias_names;
-	}
-
 	return_names = names;
 
 	auto bind_data = make_uniq<TeeBindData>(names, return_types, input.named_parameters);
-
 	auto get = make_uniq<LogicalGet>(bind_index, input.table_function, std::move(bind_data), return_types, names,
 	                                 virtual_column_map_t());
 
@@ -319,6 +305,7 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
 
 	auto tee = make_uniq<LogicalTeeOperator>();
 	tee->children.push_back(std::move(get));
+	tee->names = names;
 	return tee;
 }
 
@@ -329,9 +316,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.bind_operator = TeeBindOperator;
-	// tee_function.projection_pushdown = true;
-	// tee_function.filter_pushdown = true;
-	// tee_function.in_out_function_final = TeeFinalize;
+	tee_function.projection_pushdown = true;
+	tee_function.filter_pushdown = true;
+	// tee_function.in_out_function_finasl = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;

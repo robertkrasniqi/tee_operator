@@ -8,24 +8,42 @@
 
 namespace duckdb {
 
-PhysicalTeeOperator::PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types,
+PhysicalTeeOperator::PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, vector<string> names_p,
                                          idx_t estimated_cardinality)
-    : PhysicalOperator(physical_plan, PhysicalOperatorType::TABLE_SCAN, std::move(types), estimated_cardinality) {
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types), estimated_cardinality),
+      names(std::move(names_p)) {
 }
 
 PhysicalTeeOperator::~PhysicalTeeOperator() {
 }
 
-unique_ptr<OperatorState> PhysicalTeeOperator::GetOperatorState(ExecutionContext &) const {
-	return make_uniq<OperatorState>();
-}
+OperatorResultType PhysicalTeeOperator::Execute(ExecutionContext &context, DataChunk &input, DataChunk &output,
+                                                GlobalOperatorState &gstate, OperatorState &state) const {
+	auto &tee_state = gstate.Cast<TeeGlobalOperatorState>();
 
-OperatorResultType PhysicalTeeOperator::Execute(ExecutionContext &, DataChunk &input, DataChunk &output,
-                                                GlobalOperatorState &, OperatorState &) const {
+	tee_state.lock.lock();
+
+	tee_state.buffered.Append(input);
 	output.Reference(input);
+	std::cout << "this is a execute \n";
+
+	tee_state.lock.unlock();
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 
+OperatorFinalizeResultType PhysicalTeeOperator::FinalExecute(ExecutionContext &context, DataChunk &chunk,
+                                                             GlobalOperatorState &gstate, OperatorState &state) const {
+	auto &tee_state = gstate.Cast<TeeGlobalOperatorState>();
+
+	std::cout << "Final Execute \n";
+	BoxRendererConfig config;
+	BoxRenderer renderer(config);
+
+	Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator Operator:\n");
+	renderer.Print(context.client, names, tee_state.buffered);
+
+	return OperatorFinalizeResultType::FINISHED;
+};
 string PhysicalTeeOperator::GetName() const {
 	return "tee";
 }
