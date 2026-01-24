@@ -9,6 +9,10 @@
 #include "duckdb/planner/operator_extension.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 
+#include "duckdb/parser/tableref/subqueryref.hpp"
+#include "duckdb/parser/tableref/table_function_ref.hpp"
+#include "duckdb/common/exception/binder_exception.hpp"
+
 #include <utility>
 #include <duckdb/parser/tableref/table_function_ref.hpp>
 
@@ -294,8 +298,7 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
 
 	if (alias_names.empty()) {
 		return_names = names;
-	}
-	else {
+	} else {
 		return_names = alias_names;
 	}
 
@@ -303,7 +306,7 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
 	auto get = make_uniq<LogicalGet>(bind_index, input.table_function, std::move(bind_data), return_types, names,
 	                                 virtual_column_map_t());
 
-	for (auto & str:input.ref.column_name_alias) {
+	for (auto &str : input.ref.column_name_alias) {
 		std::cout << str << "\n";
 	}
 
@@ -313,8 +316,7 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
 
 	if (alias_table_name.empty()) {
 		get->input_table_names = input.input_table_names;
-	}
-	else {
+	} else {
 		get->input_table_names = alias_table_name;
 	}
 
