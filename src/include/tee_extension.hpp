@@ -3,7 +3,6 @@
 #include "duckdb.hpp"
 #include "tee_parser.hpp"
 #include "duckdb/common/box_renderer.hpp"
-#include "tee_operator.hpp"
 
 namespace duckdb {
 

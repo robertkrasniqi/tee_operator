@@ -1,6 +1,7 @@
 #include "tee_extension.hpp"
 #include "tee_parser.hpp"
-#include "tee_operator.hpp"
+#include "tee_physical.hpp"
+#include "tee_logical.hpp"
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/main/connection_manager.hpp"
