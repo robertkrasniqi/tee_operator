@@ -315,6 +315,10 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
 	tee->names = names;
 	return tee;
 }
+unique_ptr<TableRef> TeeBindReplace(ClientContext &context, TableFunctionBindInput &input) {
+	std::cout << "TeeBindReplace is called \n";
+	return nullptr;
+}
 
 // called when the extension is loaded
 // registers the tee table function and the parser extension
@@ -323,6 +327,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.bind_operator = TeeBindOperator;
+	tee_function.bind_replace = TeeBindReplace;
 	tee_function.projection_pushdown = true;
 	tee_function.filter_pushdown = true;
 	// tee_function.in_out_function_finasl = TeeFinalize;
