@@ -284,6 +284,7 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context
 
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<string> &names) {
+	std::cout << "TeeBind is called \n";
 	return_types = input.input_table_types;
 	names = input.input_table_names;
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
@@ -291,45 +292,28 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBin
 
 static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
                                                    idx_t bind_index, vector<string> &return_names) {
+	std::cout << "TeeBindOperator is called \n";
 	auto return_types = input.input_table_types;
 	auto names = input.input_table_names;
-
-	auto alias_names = input.ref.column_name_alias;
-	vector<string> alias_table_name = {input.ref.alias};
-
-	if (alias_names.empty()) {
-		return_names = names;
-	} else {
-		return_names = alias_names;
-	}
+	return_names = names;
 
 	auto bind_data = make_uniq<TeeBindData>(names, return_types, input.named_parameters);
 	auto get = make_uniq<LogicalGet>(bind_index, input.table_function, std::move(bind_data), return_types, names,
 	                                 virtual_column_map_t());
 
-	for (auto &str : input.ref.column_name_alias) {
-		std::cout << str << "\n";
-	}
-
 	get->parameters = input.inputs;
 	get->named_parameters = input.named_parameters;
 	get->input_table_types = input.input_table_types;
+	get->input_table_names = input.input_table_names;
 
-	if (alias_table_name.empty()) {
-		get->input_table_names = input.input_table_names;
-	} else {
-		get->input_table_names = alias_table_name;
+	for (idx_t i = 0; i < return_types.size(); i++) {
+		get->AddColumnId(i);
 	}
 
 	auto tee = make_uniq<LogicalTeeOperator>();
 	tee->children.push_back(std::move(get));
 	tee->names = names;
-
 	return tee;
-}
-
-unique_ptr<TableRef> TeeBindReplace(ClientContext &context, TableFunctionBindInput &input) {
-	return nullptr;
 }
 
 // called when the extension is loaded
@@ -341,7 +325,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.bind_operator = TeeBindOperator;
 	tee_function.projection_pushdown = true;
 	tee_function.filter_pushdown = true;
-	tee_function.bind_replace = TeeBindReplace;
 	// tee_function.in_out_function_finasl = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;

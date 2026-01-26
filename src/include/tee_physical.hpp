@@ -12,7 +12,7 @@
 #include "duckdb/main/config.hpp"
 
 namespace duckdb {
-
+/*
 // probably unnecessary; maybe delete
 struct TeeGlobalOperatorState : public GlobalOperatorState {
 	TeeGlobalOperatorState(ClientContext &context, vector<LogicalType> types_p, vector<string> names_p)
@@ -28,7 +28,7 @@ class PhysicalTeeOperator : public PhysicalOperator {
 public:
 	static constexpr PhysicalOperatorType TYPE = PhysicalOperatorType::EXTENSION;
 	PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, vector<string> names,
-	                    idx_t estimated_cardinality);
+			    idx_t estimated_cardinality);
 	~PhysicalTeeOperator() override;
 
 	vector<string> names;
@@ -38,7 +38,7 @@ public:
 	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
 
 	SinkFinalizeType Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
-	                          OperatorSinkFinalizeInput &input) const override;
+				  OperatorSinkFinalizeInput &input) const override;
 
 	bool IsSink() const override {
 		return true;
@@ -53,7 +53,7 @@ public:
 	vector<const_reference<PhysicalOperator>> GetSources() const override;
 
 	SourceResultType GetDataInternal(ExecutionContext &context, DataChunk &chunk,
-	                                 OperatorSourceInput &input) const override;
+					 OperatorSourceInput &input) const override;
 
 	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override {
 		return make_uniq<OperatorState>();
@@ -63,7 +63,7 @@ public:
 		return make_uniq<TeeGlobalOperatorState>(context, types, names);
 	}
 
-	/*
+
 	// No need
 	bool RequiresFinalExecute() const override {
 	    return false;
@@ -71,8 +71,11 @@ public:
 
 	// No need
 	OperatorResultType Execute(ExecutionContext &context, DataChunk &input, DataChunk &output,
-	                           GlobalOperatorState &gstate, OperatorState &state) const override;
-	*/
+				   GlobalOperatorState &gstate, OperatorState &state) const override;
+
 	string GetName() const override;
 };
+
 } // namespace duckdb
+*/
+}
