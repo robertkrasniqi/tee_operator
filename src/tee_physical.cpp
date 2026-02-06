@@ -8,7 +8,6 @@
 #include "duckdb/parallel/pipeline.hpp"
 
 namespace duckdb {
-
 PhysicalTeeOperator::PhysicalTeeOperator(PhysicalPlan &physical_plan, vector<LogicalType> types, vector<string> names_p,
                                          idx_t estimated_cardinality)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types), estimated_cardinality),
