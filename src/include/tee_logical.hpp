@@ -2,6 +2,7 @@
 
 #include "tee_parser.hpp"
 #include "tee_extension.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 #include "tee_physical.hpp"
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
 #include "duckdb/execution/physical_operator.hpp"
@@ -10,54 +11,21 @@
 #include <duckdb/execution/column_binding_resolver.hpp>
 #include <duckdb/main/connection.hpp>
 #include "duckdb/main/config.hpp"
+#include <duckdb/execution/operator/projection/physical_tableinout_function.hpp>
 
 namespace duckdb {
-class LogicalTeeOperator : public LogicalExtensionOperator {
+
+class LogicalTeeOperator : public LogicalGet {
 public:
-	LogicalTeeOperator() : LogicalExtensionOperator() {
+	LogicalTeeOperator(idx_t table_index, TableFunction function, unique_ptr<FunctionData> bind_data,
+	                   vector<LogicalType> returned_types, vector<string> returned_names)
+	    : LogicalGet(table_index, std::move(function), std::move(bind_data), std::move(returned_types),
+	                 std::move(returned_names)) {
 	}
 
-	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_GET;
-	vector<string> names;
-	idx_t bind_index = DConstants::INVALID_INDEX;
-
-	string GetExtensionName() const override {
+	string GetExtensionName() const {
 		return "tee";
 	}
-
-	void ResolveTypes() override {
-		if (children.empty()) {
-			return;
-		}
-		types = children[0]->types;
-	}
-
-	bool RequireOptimizer() const override {
-		// this is true on default - rn it's for testing
-		return true;
-	}
-
-	idx_t GetRootIndex() override {
-		if (children.empty()) {
-			return bind_index;
-		}
-		return children[0]->GetRootIndex();
-	}
-
-	vector<ColumnBinding> GetColumnBindings() override {
-		if (children.empty()) {
-			return LogicalOperator::GenerateColumnBindings(bind_index, types.size());
-		}
-		return children[0]->GetColumnBindings();
-	}
-
-	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
-		auto &child = planner.CreatePlan(*children[0]);
-		auto &tee = planner.Make<PhysicalTeeOperator>(child.types, names, child.estimated_cardinality);
-
-		tee.children.push_back(child);
-
-		return tee;
-	}
 };
+
 } // namespace duckdb

@@ -1,7 +1,7 @@
 #include "tee_extension.hpp"
 #include "tee_parser.hpp"
-#include "tee_physical.hpp"
 #include "tee_logical.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/main/connection_manager.hpp"
@@ -294,22 +294,19 @@ static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, Table
 	return_names = names;
 
 	auto bind_data = make_uniq<TeeBindData>(names, return_types, input.named_parameters);
-	auto get = make_uniq<LogicalGet>(bind_index, input.table_function, std::move(bind_data), return_types, names,
-	                                 virtual_column_map_t());
+	auto tee =
+	    make_uniq<LogicalTeeOperator>(bind_index, input.table_function, std::move(bind_data), return_types, names);
 
-	get->parameters = input.inputs;
-	get->named_parameters = input.named_parameters;
-	get->input_table_types = input.input_table_types;
-	get->input_table_names = input.input_table_names;
+	tee->parameters = input.inputs;
+	tee->named_parameters = input.named_parameters;
+	tee->input_table_types = input.input_table_types;
+	tee->input_table_names = input.input_table_names;
 
 	for (idx_t i = 0; i < return_types.size(); i++) {
-		get->AddColumnId(i);
+		tee->AddColumnId(i);
 	}
 
-	auto tee = make_uniq<LogicalTeeOperator>();
-	tee->children.push_back(std::move(get));
-	tee->names = names;
-	return tee;
+	return std::move(tee);
 }
 
 // called when the extension is loaded
@@ -319,8 +316,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.bind_operator = TeeBindOperator;
-	tee_function.projection_pushdown = true;
-	tee_function.filter_pushdown = true;
+	tee_function.projection_pushdown = false;
+	tee_function.filter_pushdown = false;
 	// tee_function.in_out_function_finasl = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
