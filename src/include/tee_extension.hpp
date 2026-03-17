@@ -18,7 +18,6 @@ struct TeeBindData : public FunctionData {
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<TeeBindData>(names, types, tee_named_parameters);
 	}
-
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<TeeBindData>();
 		return names == other.names && types == other.types && tee_named_parameters == other.tee_named_parameters;
@@ -28,6 +27,9 @@ struct TeeBindData : public FunctionData {
 struct TeeGlobalState : public GlobalTableFunctionState {
 	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p, const vector<string> &names_p);
 	~TeeGlobalState() override;
+
+	void FlushOutputs();
+
 	ColumnDataCollection buffered;
 	vector<string> names;
 	vector<LogicalType> types;
@@ -44,6 +46,7 @@ struct TeeGlobalState : public GlobalTableFunctionState {
 	string path;
 	bool table_name_flag;
 	string table_name;
+	bool flushed;
 };
 
 class TeeExtension : public Extension {

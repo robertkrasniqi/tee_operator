@@ -1,6 +1,5 @@
 #include "tee_extension.hpp"
 #include "tee_parser.hpp"
-#include "tee_logical.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
@@ -8,12 +7,7 @@
 #include "duckdb/common/printer.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/planner/operator_extension.hpp"
-#include "duckdb/planner/operator/logical_get.hpp"
-#include "duckdb/parser/tableref/subqueryref.hpp"
 #include <utility>
-#include "duckdb/parser/tableref/table_function_ref.hpp"
-#include "duckdb/common/exception/binder_exception.hpp"
-#include <duckdb/parser/tableref/table_function_ref.hpp>
 
 namespace duckdb {
 
@@ -80,7 +74,11 @@ TeeGlobalState::TeeGlobalState(ClientContext &context, const vector<LogicalType>
                                const vector<string> &names_p)
     : buffered(context, types_p), names(names_p), types(types_p), context_ptr(&context), printed_flag(false),
       parameter_flag(false), pager_flag(false), terminal_flag(true), symbol_flag(false), path_flag(false),
-      table_name_flag(false) {
+      table_name_flag(false), flushed(false) {
+}
+
+TeeGlobalState::~TeeGlobalState() {
+	FlushOutputs();
 }
 
 static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
@@ -191,31 +189,42 @@ static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffere
 	Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
 }
 
-// When the destructor is called, we know that the pipeline is done, and we can print / call pager.
-TeeGlobalState::~TeeGlobalState() {
-	if (printed_flag) {
+static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
+                                      DataChunk &output) {
+	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
+
+	lock_guard<mutex> guard(global_state.lock);
+	global_state.buffered.Append(input);
+	output.Reference(input);
+
+	return OperatorResultType::NEED_MORE_INPUT;
+}
+
+void TeeGlobalState::FlushOutputs() {
+	lock_guard<mutex> guard(lock);
+	if (flushed) {
 		return;
 	}
-	printed_flag = true;
+	flushed = true;
+
 	if (pager_flag || terminal_flag) {
 		BoxRendererConfig config;
-		// config.max_rows = 100;
 		BoxRenderer renderer(config);
 
-		// pager doesnt print so symbol should not be printed either
 		if (symbol_flag && !pager_flag) {
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator Query: " + symbol + "\n");
+			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator; Symbol:  " + symbol + "\n");
 		} else if (!pager_flag) {
 			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator: \n");
 		}
+
 		if (pager_flag) {
-			string out = renderer.ToString(*context_ptr, names, buffered);
-			// Call pager
-			SetupPager(out);
+			string out_str = renderer.ToString(*context_ptr, names, buffered);
+			SetupPager(out_str);
 		} else {
 			renderer.Print(*context_ptr, names, buffered);
 		}
 	}
+
 	if (path_flag) {
 		TeeCSVWriter(*context_ptr, buffered, names, path);
 	}
@@ -224,60 +233,37 @@ TeeGlobalState::~TeeGlobalState() {
 	}
 }
 
-// this function is called once per chunk
-static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
-                                      DataChunk &output) {
-	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
-	auto &parameter_map = data_p.bind_data->Cast<TeeBindData>().tee_named_parameters;
-
-	// lock the global_state to prevent race conditions
-	// and handle the current chunk
-	global_state.lock.lock();
-
-	// remember parameters once (if there are any parameters)
-	if (!global_state.parameter_flag) {
-		global_state.parameter_flag = true;
-
-		global_state.pager_flag = false;
-		if (parameter_map.find("pager") != parameter_map.end()) {
-			global_state.pager_flag = parameter_map.at("pager").GetValue<bool>();
-		}
-
-		global_state.terminal_flag = true;
-		if (parameter_map.find("terminal") != parameter_map.end()) {
-			global_state.terminal_flag = parameter_map.at("terminal").GetValue<bool>();
-		}
-
-		global_state.symbol_flag = false;
-		if (parameter_map.find("symbol") != parameter_map.end()) {
-			global_state.symbol_flag = true;
-			global_state.symbol = parameter_map.at("symbol").GetValue<string>();
-		}
-
-		global_state.path_flag = false;
-		if (parameter_map.find("path") != parameter_map.end()) {
-			global_state.path_flag = true;
-			global_state.path = parameter_map.at("path").GetValue<string>();
-		}
-
-		global_state.table_name_flag = false;
-		if (parameter_map.find("table_name") != parameter_map.end()) {
-			global_state.table_name_flag = true;
-			global_state.table_name = parameter_map.at("table_name").GetValue<string>();
-		}
-	}
-	// buffer the chunk
-	global_state.buffered.Append(input);
-	output.Reference(input);
-
-	global_state.lock.unlock();
-	return OperatorResultType::NEED_MORE_INPUT;
-}
-
-// this function is called once at the start of execution to create the global state
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<TeeBindData>();
-	return make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
+	auto result = make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
+
+	auto &parameter_map = bind_data.tee_named_parameters;
+	result->parameter_flag = true;
+
+	if (parameter_map.find("pager") != parameter_map.end()) {
+		result->pager_flag = parameter_map.at("pager").GetValue<bool>();
+	}
+
+	if (parameter_map.find("terminal") != parameter_map.end()) {
+		result->terminal_flag = parameter_map.at("terminal").GetValue<bool>();
+	}
+
+	if (parameter_map.find("symbol") != parameter_map.end()) {
+		result->symbol_flag = true;
+		result->symbol = parameter_map.at("symbol").GetValue<string>();
+	}
+
+	if (parameter_map.find("path") != parameter_map.end()) {
+		result->path_flag = true;
+		result->path = parameter_map.at("path").GetValue<string>();
+	}
+
+	if (parameter_map.find("table_name") != parameter_map.end()) {
+		result->table_name_flag = true;
+		result->table_name = parameter_map.at("table_name").GetValue<string>();
+	}
+
+	return result;
 }
 
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
@@ -287,38 +273,10 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBin
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
 }
 
-static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
-                                                   idx_t bind_index, vector<string> &return_names) {
-	auto return_types = input.input_table_types;
-	auto names = input.input_table_names;
-	return_names = names;
-
-	auto bind_data = make_uniq<TeeBindData>(names, return_types, input.named_parameters);
-	auto tee =
-	    make_uniq<LogicalTeeOperator>(bind_index, input.table_function, std::move(bind_data), return_types, names);
-
-	tee->parameters = input.inputs;
-	tee->named_parameters = input.named_parameters;
-	tee->input_table_types = input.input_table_types;
-	tee->input_table_names = input.input_table_names;
-
-	for (idx_t i = 0; i < return_types.size(); i++) {
-		tee->AddColumnId(i);
-	}
-
-	return std::move(tee);
-}
-
-// called when the extension is loaded
-// registers the tee table function and the parser extension
 static void LoadInternal(ExtensionLoader &loader) {
-	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, TeeBind);
+	TableFunction tee_function("__rewrite_query", {LogicalType::TABLE}, nullptr, TeeBind);
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
-	tee_function.bind_operator = TeeBindOperator;
-	tee_function.projection_pushdown = false;
-	tee_function.filter_pushdown = false;
-	// tee_function.in_out_function_finasl = TeeFinalize;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
@@ -326,13 +284,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.named_parameters["pager"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(tee_function);
 
-	/* disable the parser for now
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
-	config.options.allow_parser_override_extension = "fallback";
-	TeeParserExtension TeeExtensionParser;
-	config.parser_extensions.push_back(TeeExtensionParser);
-	*/
+
+	config.SetOptionByName("allow_parser_override_extension", Value("fallback"));
+
+	ParserExtension parser_extension;
+	parser_extension.parser_override = TeeParserExtension::ParserOverrideFunction;
+	ParserExtension::Register(config, std::move(parser_extension));
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
