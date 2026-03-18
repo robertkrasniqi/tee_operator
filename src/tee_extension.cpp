@@ -79,7 +79,7 @@ TeeGlobalState::TeeGlobalState(ClientContext &context, const vector<LogicalType>
 }
 
 TeeGlobalState::~TeeGlobalState() {
-	FlushOutputs();
+	TeeFlushOutputs();
 }
 
 static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
@@ -202,7 +202,7 @@ static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionIn
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 
-void TeeGlobalState::FlushOutputs() {
+void TeeGlobalState::TeeFlushOutputs() {
 	std::cout << "Tee: TeeGlobalState destructed -> FlushOutputs called \n";
 	lock_guard<mutex> guard(lock);
 	if (flushed) {

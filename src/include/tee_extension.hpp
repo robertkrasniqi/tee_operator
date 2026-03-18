@@ -28,7 +28,7 @@ struct TeeGlobalState : public GlobalTableFunctionState {
 	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types_p, const vector<string> &names_p);
 	~TeeGlobalState() override;
 
-	void FlushOutputs();
+	void TeeFlushOutputs();
 
 	ColumnDataCollection buffered;
 	vector<string> names;
