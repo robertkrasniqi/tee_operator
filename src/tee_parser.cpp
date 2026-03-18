@@ -5,6 +5,8 @@
 
 #include <iostream>
 
+#define PRINT_QUERY
+
 namespace duckdb {
 
 // Prevents matching "tee" inside other identifiers
@@ -80,29 +82,24 @@ static string RewriteTeeQuery(const string &input_subquery, const string &named_
 	const string force_cte_name = "__rewrite_force_" + to_string(tee_call_idx);
 	// Alias for final query
 	const string result_alias = "__rewrite_result_" + to_string(tee_call_idx);
-	// Column alias - used to consume all rows via count(*)
-	const string consume_alias = "__rewrite_consumed_" + to_string(tee_call_idx);
 
 	// rewrite_call holds alias "__rewrite_query" for the tee function call and named parameter if present
 	// __rewrite_query is the actually registered function name
 	const string rewrite_call = ConcatNamedParams(input_cte_name, named_params);
 
 	string result;
-	result += "(\n";
-	result += "    SELECT *\n";
-	result += "    FROM (\n";
-	result += "        WITH " + input_cte_name + " AS MATERIALIZED (\n";
-	result += "            " + input_subquery + "\n";
-	result += "        ),\n";
-	result += "        " + force_cte_name + " AS (\n";
-	result += "            SELECT count(*) AS " + consume_alias + "\n";
-	result += "            FROM " + rewrite_call + "\n";
-	result += "        )\n";
-	result += "        SELECT " + input_cte_name + ".*\n";
-	result += "        FROM " + input_cte_name + ", " + force_cte_name + "\n";
-	result += "    ) AS " + result_alias + "\n";
-	result += ")";
-#ifdef DEBUG
+
+	result += "\n(SELECT * FROM ( \n \t";
+	result += "WITH " + input_cte_name + " AS MATERIALIZED (\n \t \t";
+	result += input_subquery + "\n \t \t";
+	result += "), " + force_cte_name + " AS ( \n \t \t";
+	result += "SELECT count(*) FROM " + rewrite_call + "\n \t \t \t";
+	result += ") \n \t \t \t";
+	result += "SELECT " + input_cte_name + ".* \n \t";
+	result += "FROM " + input_cte_name + ", " + force_cte_name + "\n";
+	result += ") AS " + result_alias + ")\n";
+
+#ifdef PRINT_QUERY
 	result += "\n";
 	Printer::Print(result);
 #endif
@@ -182,6 +179,7 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 
 	// Rewrite all tee calls in query
 	string modified_query = BuildTeeQuery(query);
+	std::cout << "Tee Parser: BuildTeeQuery(query) called \n";
 	if (modified_query == query) {
 		return ParserOverrideResult();
 	}
