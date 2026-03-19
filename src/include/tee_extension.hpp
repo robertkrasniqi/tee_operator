@@ -1,8 +1,6 @@
 #pragma once
 
 #include "duckdb.hpp"
-#include "tee_parser.hpp"
-#include "duckdb/common/box_renderer.hpp"
 
 namespace duckdb {
 

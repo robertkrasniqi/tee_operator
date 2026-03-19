@@ -1,13 +1,10 @@
 #include "tee_extension.hpp"
 #include "tee_parser.hpp"
-#include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/common/csv_writer.hpp"
-#include "duckdb/common/vector_operations/vector_operations.hpp"
-#include "duckdb/main/connection_manager.hpp"
-#include "duckdb/common/printer.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
-#include "duckdb/planner/operator_extension.hpp"
-#include <utility>
+#include "duckdb/common/box_renderer.hpp"
+
+
 
 namespace duckdb {
 

@@ -1,5 +1,5 @@
 #include "include/tee_parser.hpp"
-#include "include/tee_extension.hpp"
+
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
 
