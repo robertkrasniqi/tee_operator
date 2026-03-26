@@ -5,7 +5,7 @@
 
 #include <iostream>
 
-#define PRINT_QUERY
+//#define PRINT_QUERY
 
 namespace duckdb {
 
@@ -90,7 +90,7 @@ static string RewriteTeeQuery(const string &input_subquery, const string &named_
 	string result;
 
 	result += "\n(SELECT * FROM ( \n \t";
-	result += "WITH " + input_cte_name + " AS MATERIALIZED (\n \t \t";
+	result += "WITH " + input_cte_name + " AS  (\n \t \t";
 	result += input_subquery + "\n \t \t";
 	result += "), " + force_cte_name + " AS ( \n \t \t";
 	result += "SELECT count(*) FROM " + rewrite_call + "\n \t \t \t";

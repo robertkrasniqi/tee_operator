@@ -72,7 +72,6 @@ TeeGlobalState::TeeGlobalState(ClientContext &context, const vector<LogicalType>
     : buffered(context, types_p), names(names_p), types(types_p), context_ptr(&context), printed_flag(false),
       parameter_flag(false), pager_flag(false), terminal_flag(true), symbol_flag(false), path_flag(false),
       table_name_flag(false), flushed(false) {
-	std::cout << "Tee: TeeGlobalState initialized \n";
 }
 
 TeeGlobalState::~TeeGlobalState() {
@@ -189,7 +188,6 @@ static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffere
 
 static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
                                       DataChunk &output) {
-	std::cout << "Tee: TeeTableFun called \n";
 	auto &global_state = data_p.global_state->Cast<TeeGlobalState>();
 
 	lock_guard<mutex> guard(global_state.lock);
@@ -200,7 +198,6 @@ static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionIn
 }
 
 void TeeGlobalState::TeeFlushOutputs() {
-	std::cout << "Tee: TeeGlobalState destructed -> FlushOutputs called \n";
 	lock_guard<mutex> guard(lock);
 	if (flushed) {
 		return;
@@ -234,7 +231,6 @@ void TeeGlobalState::TeeFlushOutputs() {
 }
 
 static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
-	std::cout << "Tee: TeeInitGlobal \n";
 	auto &bind_data = input.bind_data->Cast<TeeBindData>();
 	auto result = make_uniq<TeeGlobalState>(context, bind_data.types, bind_data.names);
 
@@ -269,7 +265,6 @@ static unique_ptr<GlobalTableFunctionState> TeeInitGlobal(ClientContext &context
 
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<string> &names) {
-	std::cout << "Tee: TeeBind called \n";
 	return_types = input.input_table_types;
 	names = input.input_table_names;
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
@@ -285,7 +280,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.named_parameters["table_name"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["pager"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(tee_function);
-	std::cout << "Tee: LoadInternal was called \n";
 
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
