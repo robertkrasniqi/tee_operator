@@ -2,10 +2,14 @@
 
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
+#include <fmt/core.h>
+#include <string>
+
+#include "format"
 
 #include <iostream>
 
-//#define PRINT_QUERY
+#define PRINT_QUERY
 
 namespace duckdb {
 
@@ -44,8 +48,10 @@ static idx_t FindMatchingParentheses(const string &query, idx_t idx) {
 }
 
 // Helper function, concatenate input query with named parameters if present
-static string ConcatNamedParams(const string &input_cte_name, const string &named_params) {
-	string rewrite_call = "__rewrite_query((FROM " + input_cte_name + ")";
+static string ConcatNamedParams(const string &input_subquery, const string &named_params) {
+	string rewrite_call = "__rewrite_query((";
+	rewrite_call += input_subquery;
+	rewrite_call += ")";
 	if (!named_params.empty()) {
 		rewrite_call += ", " + named_params;
 	}
@@ -65,17 +71,44 @@ FROM (                         └───────────────�
     FROM [									      │					│
         WITH __rewrite_input_0 AS MATERIALIZED (  │					│
             SELECT i FROM range(3) AS t(i) ───────┘					│
-        ),															│
-        __rewrite_force_0 AS (										│
-            SELECT count(*) AS __rewrite_consumed_0		  ┌─────────┴──────┐
-            FROM __rewrite_query((FROM __rewrite_input_0), terminal = true)
-        )
-        SELECT __rewrite_input_0.*
-        FROM __rewrite_input_0, __rewrite_force_0
-        ] AS __rewrite_result_0
-)
+
+
+
+SELECT __rewrite_table.* EXCLUDE (__rewrite_dummy_counter)
+FROM (
+	SELECT
+		__rewrite_select.*,
+		count(*) OVER () AS __rewrite_dummy_counter
+			FROM __rewrite_query(
+				(FROM lineitem), symbol = 's'
+				) AS __rewrite_select
+) AS __rewrite_table;
+
+
 */
+
+// RewriteTeeQuery rewrites the tee call such that it is forced to be materialized
 static string RewriteTeeQuery(const string &input_subquery, const string &named_params, idx_t tee_call_idx) {
+	const string rewrite_call = ConcatNamedParams(input_subquery, named_params);
+
+	string result;
+
+	result += "\n(SELECT __rewrite_table.* EXCLUDE (__rewrite_dummy_counter)\n";
+	result += "FROM (\n";
+	result += "\tSELECT\n";
+	result += "\t\t__rewrite_select.*, \n";
+	result += "\t\tcount(*) OVER () AS __rewrite_dummy_counter\n";
+	result += "\tFROM " + rewrite_call + " AS __rewrite_select\n";
+	result += ") AS __rewrite_table)\n";
+
+#ifdef PRINT_QUERY
+	result += "\n";
+	Printer::Print(result);
+#endif
+	return result;
+}
+
+static string RewriteTeeQueryOld(const string &input_subquery, const string &named_params, idx_t tee_call_idx) {
 	// Contructed CTE name for the original tee input
 	const string input_cte_name = "__rewrite_input_" + to_string(tee_call_idx);
 	// Contructed CTE name for the forced full scan
@@ -179,10 +212,11 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 
 	// Rewrite all tee calls in query
 	string modified_query = BuildTeeQuery(query);
-	std::cout << "Tee Parser: BuildTeeQuery(query) called \n";
 	if (modified_query == query) {
 		return ParserOverrideResult();
 	}
+
+	std::cout << modified_query << "\n";
 
 	try {
 		// Parse the new query using DuckDBs normal parser
