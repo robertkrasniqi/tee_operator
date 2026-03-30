@@ -9,7 +9,7 @@
 
 #include <iostream>
 
-#define PRINT_QUERY
+//#define PRINT_QUERY
 
 namespace duckdb {
 
@@ -47,7 +47,7 @@ static idx_t FindMatchingParentheses(const string &query, idx_t idx) {
 	return DConstants::INVALID_INDEX;
 }
 
-// Helper function, concatenate input query with named parameters if present
+// Helper function, concatenate input query with named paramseters if present
 static string ConcatNamedParams(const string &input_subquery, const string &named_params) {
 	string rewrite_call = "__rewrite_query((";
 	rewrite_call += input_subquery;
@@ -59,35 +59,7 @@ static string ConcatNamedParams(const string &input_subquery, const string &name
 	return rewrite_call;
 }
 
-// RewriteTeeQuery rewrites the tee call such that it is forced to be materialized
-// Example:
-/*
-SELECT * FROM tee((SELECT i FROM range(3) AS t(i)), terminal = true);
-                  └────────────┬──────────────┘     └────────┬──────┘
-(                              │                             │
-SELECT *                       │                             └──────┐
-FROM (                         └──────────────────┐					│
-    SELECT *								      │					│
-    FROM [									      │					│
-        WITH __rewrite_input_0 AS MATERIALIZED (  │					│
-            SELECT i FROM range(3) AS t(i) ───────┘					│
-
-
-
-SELECT __rewrite_table.* EXCLUDE (__rewrite_dummy_counter)
-FROM (
-	SELECT
-		__rewrite_select.*,
-		count(*) OVER () AS __rewrite_dummy_counter
-			FROM __rewrite_query(
-				(FROM lineitem), symbol = 's'
-				) AS __rewrite_select
-) AS __rewrite_table;
-
-
-*/
-
-// RewriteTeeQuery rewrites the tee call such that it is forced to be materialized
+// RewriteTeeQuery rewrites the tee call such that it is forced to consume all rows
 static string RewriteTeeQuery(const string &input_subquery, const string &named_params, idx_t tee_call_idx) {
 	const string rewrite_call = ConcatNamedParams(input_subquery, named_params);
 
@@ -100,37 +72,6 @@ static string RewriteTeeQuery(const string &input_subquery, const string &named_
 	result += "\t\tcount(*) OVER () AS __rewrite_dummy_counter\n";
 	result += "\tFROM " + rewrite_call + " AS __rewrite_select\n";
 	result += ") AS __rewrite_table)\n";
-
-#ifdef PRINT_QUERY
-	result += "\n";
-	Printer::Print(result);
-#endif
-	return result;
-}
-
-static string RewriteTeeQueryOld(const string &input_subquery, const string &named_params, idx_t tee_call_idx) {
-	// Contructed CTE name for the original tee input
-	const string input_cte_name = "__rewrite_input_" + to_string(tee_call_idx);
-	// Contructed CTE name for the forced full scan
-	const string force_cte_name = "__rewrite_force_" + to_string(tee_call_idx);
-	// Alias for final query
-	const string result_alias = "__rewrite_result_" + to_string(tee_call_idx);
-
-	// rewrite_call holds alias "__rewrite_query" for the tee function call and named parameter if present
-	// __rewrite_query is the actually registered function name
-	const string rewrite_call = ConcatNamedParams(input_cte_name, named_params);
-
-	string result;
-
-	result += "\n(SELECT * FROM ( \n \t";
-	result += "WITH " + input_cte_name + " AS  (\n \t \t";
-	result += input_subquery + "\n \t \t";
-	result += "), " + force_cte_name + " AS ( \n \t \t";
-	result += "SELECT count(*) FROM " + rewrite_call + "\n \t \t \t";
-	result += ") \n \t \t \t";
-	result += "SELECT " + input_cte_name + ".* \n \t";
-	result += "FROM " + input_cte_name + ", " + force_cte_name + "\n";
-	result += ") AS " + result_alias + ")\n";
 
 #ifdef PRINT_QUERY
 	result += "\n";
@@ -215,8 +156,6 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 	if (modified_query == query) {
 		return ParserOverrideResult();
 	}
-
-	std::cout << modified_query << "\n";
 
 	try {
 		// Parse the new query using DuckDBs normal parser
