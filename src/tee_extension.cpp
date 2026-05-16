@@ -4,8 +4,6 @@
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/common/box_renderer.hpp"
 
-
-
 namespace duckdb {
 
 static string GetSystemPager() {
@@ -199,6 +197,8 @@ static OperatorResultType TeeTableFun(ExecutionContext &context, TableFunctionIn
 
 void TeeGlobalState::TeeFlushOutputs() {
 	lock_guard<mutex> guard(lock);
+	ClientBoxRendererContext render_context(*context_ptr);
+	ColumnDataCollectionWrapper render_buffer(buffered);
 	if (flushed) {
 		return;
 	}
@@ -215,10 +215,10 @@ void TeeGlobalState::TeeFlushOutputs() {
 		}
 
 		if (pager_flag) {
-			string out_str = renderer.ToString(*context_ptr, names, buffered);
+			string out_str = renderer.ToString(render_context, names, render_buffer);
 			SetupPager(out_str);
 		} else {
-			renderer.Print(*context_ptr, names, buffered);
+			renderer.Print(render_context, names, render_buffer);
 		}
 	}
 
@@ -271,7 +271,7 @@ static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBin
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
-	TableFunction tee_function("__rewrite_query", {LogicalType::TABLE}, nullptr, TeeBind);
+	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, TeeBind);
 	tee_function.init_global = TeeInitGlobal;
 	tee_function.in_out_function = TeeTableFun;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
