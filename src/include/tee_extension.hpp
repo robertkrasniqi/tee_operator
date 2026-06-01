@@ -1,8 +1,21 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/common/types/column/column_data_collection.hpp"
+#include "duckdb/execution/physical_operator_states.hpp"
 
 namespace duckdb {
+
+class TeeGlobalState : public GlobalOperatorState {
+public:
+	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types, const vector<string> &names)
+	    : buffered(context, types), names(names) {
+	}
+
+	ColumnDataCollection buffered;
+	vector<string> names;
+	mutex lock;
+};
 
 struct TeeBindData : public FunctionData {
 	TeeBindData(vector<string> names_p, vector<LogicalType> types_p, named_parameter_map_t tee_named_parameter_p)

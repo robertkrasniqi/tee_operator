@@ -25,7 +25,7 @@ PhysicalOperator &LogicalTee::CreatePlan(ClientContext &context, PhysicalPlanGen
 
 	auto &child = planner.CreatePlan(*children[0]);
 
-	auto &physical_tee = planner.Make<PhysicalTee>(types_output, estimated_cardinality);
+	auto &physical_tee = planner.Make<PhysicalTee>(types_output, names_output, estimated_cardinality);
 	physical_tee.children.push_back(child);
 
 	return physical_tee;
