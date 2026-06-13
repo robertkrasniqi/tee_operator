@@ -15,6 +15,7 @@ public:
 	TableIndex table_index;
 	vector<LogicalType> types_output;
 	vector<string> names_output;
+	vector<column_t> projected_input;
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override;
 

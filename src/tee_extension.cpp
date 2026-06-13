@@ -34,6 +34,8 @@ static void ReplaceTeeNodes(unique_ptr<LogicalOperator> &node) {
 	}
 	auto logical_tee = make_uniq<LogicalTee>(get.table_index, get.returned_types, get.names);
 
+	logical_tee->projected_input = get.projected_input;
+
 	for (auto &child : get.children) {
 		logical_tee->children.push_back(std::move(child));
 	}

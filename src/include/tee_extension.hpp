@@ -8,12 +8,15 @@ namespace duckdb {
 
 class TeeGlobalState : public GlobalOperatorState {
 public:
-	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types, const vector<string> &names)
-	    : buffered(context, types), names(names) {
+	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types, const vector<string> &names,
+	               idx_t all_col_count)
+	    : buffered(context, vector<LogicalType>(types.begin(), types.begin() + all_col_count)), names(names),
+	      all_col_count(all_col_count) {
 	}
 
 	ColumnDataCollection buffered;
 	vector<string> names;
+	idx_t all_col_count;
 	mutex lock;
 };
 
