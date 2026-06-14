@@ -1,7 +1,9 @@
 #include "tee_extension.hpp"
 #include "tee_logical.hpp"
 #include "tee_physical.hpp"
+#include "tee_parser.hpp"
 #include "duckdb/optimizer/optimizer_extension.hpp"
+#include "duckdb/parser/parser_extension.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 
 namespace duckdb {
@@ -64,6 +66,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	OptimizerExtension tee_optimizer;
 	tee_optimizer.optimize_function = TeeOptimize;
 	OptimizerExtension::Register(config, std::move(tee_optimizer));
+
+	config.SetOptionByName("allow_parser_override_extension", Value("fallback"));
+
+	ParserExtension parser_extension;
+	parser_extension.parser_override = TeeParserExtension::ParserOverrideFunction;
+	ParserExtension::Register(config, std::move(parser_extension));
 }
 
 void TeeExtension::Load(ExtensionLoader &loader) {
