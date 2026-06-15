@@ -34,7 +34,9 @@ static void ReplaceTeeNodes(unique_ptr<LogicalOperator> &node) {
 	if (get.function.name != "tee") {
 		return;
 	}
-	auto logical_tee = make_uniq<LogicalTee>(get.table_index, get.returned_types, get.names);
+	auto &bind_data = get.bind_data->Cast<TeeBindData>();
+	auto logical_tee =
+	    make_uniq<LogicalTee>(get.table_index, get.returned_types, get.names, bind_data.tee_named_parameters);
 
 	logical_tee->projected_input = get.projected_input;
 

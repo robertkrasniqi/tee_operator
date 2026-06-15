@@ -3,8 +3,10 @@
 
 namespace duckdb {
 
-LogicalTee::LogicalTee(TableIndex table_idx_p, vector<LogicalType> types_output_p, vector<string> names_output_p)
-    : table_index(table_idx_p), types_output(std::move(types_output_p)), names_output(std::move(names_output_p)) {
+LogicalTee::LogicalTee(TableIndex table_idx_p, vector<LogicalType> types_output_p, vector<string> names_output_p,
+                       named_parameter_map_t tee_named_parameters_p)
+    : table_index(table_idx_p), types_output(std::move(types_output_p)), names_output(std::move(names_output_p)),
+      tee_named_parameters(std::move(tee_named_parameters_p)) {
 }
 
 vector<ColumnBinding> LogicalTee::GetColumnBindings() {
@@ -40,7 +42,7 @@ PhysicalOperator &LogicalTee::CreatePlan(ClientContext &context, PhysicalPlanGen
 	auto &child = planner.CreatePlan(*children[0]);
 
 	auto &physical_tee = planner.Make<PhysicalTee>(types, names_output, estimated_cardinality,
-	                                               static_cast<idx_t>(projected_input.size()));
+	                                               static_cast<idx_t>(projected_input.size()), tee_named_parameters);
 	physical_tee.children.push_back(child);
 
 	return physical_tee;

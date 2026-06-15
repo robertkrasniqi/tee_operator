@@ -8,14 +8,16 @@
 namespace duckdb {
 
 PhysicalTee::PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types_p, vector<string> names_p,
-                         idx_t estimated_cardinality, idx_t projected_input_count_p)
+                         idx_t estimated_cardinality, idx_t projected_input_count_p,
+                         named_parameter_map_t tee_named_parameters_p)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types_p), estimated_cardinality),
-      names_output(std::move(names_p)), projected_input_count(projected_input_count_p) {
+      names_output(std::move(names_p)), projected_input_count(projected_input_count_p),
+      tee_named_parameters(std::move(tee_named_parameters_p)) {
 }
 
 unique_ptr<GlobalOperatorState> PhysicalTee::GetGlobalOperatorState(ClientContext &context) const {
 	idx_t original_col_count = types.size() - projected_input_count;
-	return make_uniq<TeeGlobalState>(context, types, names_output, original_col_count);
+	return make_uniq<TeeGlobalState>(context, types, names_output, original_col_count, tee_named_parameters);
 }
 
 OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,

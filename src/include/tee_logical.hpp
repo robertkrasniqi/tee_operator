@@ -10,12 +10,14 @@ namespace duckdb {
 
 class LogicalTee : public LogicalExtensionOperator {
 public:
-	LogicalTee(TableIndex table_index, vector<LogicalType> output_types, vector<string> output_names);
+	LogicalTee(TableIndex table_index, vector<LogicalType> output_types, vector<string> output_names,
+	           named_parameter_map_t tee_named_parameters);
 
 	TableIndex table_index;
 	vector<LogicalType> types_output;
 	vector<string> names_output;
 	vector<column_t> projected_input;
+	named_parameter_map_t tee_named_parameters;
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override;
 
