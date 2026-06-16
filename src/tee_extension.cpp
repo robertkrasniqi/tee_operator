@@ -18,7 +18,7 @@ static OperatorResultType TeeDummyInOut(ExecutionContext &context, TableFunction
 static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
                                         vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = input.input_table_types;
-	names = input.input_table_names;
+	names = IdentifiersToStrings(input.input_table_names);
 	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
 }
 
@@ -36,7 +36,7 @@ static void ReplaceTeeNodes(unique_ptr<LogicalOperator> &node) {
 	}
 	auto &bind_data = get.bind_data->Cast<TeeBindData>();
 	auto logical_tee =
-	    make_uniq<LogicalTee>(get.table_index, get.returned_types, get.names, bind_data.tee_named_parameters);
+	    make_uniq<LogicalTee>(get.table_index, get.returned_types, IdentifiersToStrings(get.names), bind_data.tee_named_parameters);
 
 	logical_tee->projected_input = get.projected_input;
 

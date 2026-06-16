@@ -47,7 +47,7 @@ OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &in
 		for (idx_t i = 0; i < original_col_count; i++) {
 			original_chunk.data[i].Reference(input.data[i]);
 		}
-		original_chunk.SetCardinality(input.size());
+		original_chunk.SetChildCardinality(input.size());
 		tee_state.buffered.Append(original_chunk);
 	}
 	chunk.Reference(input);
@@ -162,7 +162,7 @@ static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered,
 			VectorOperations::DefaultCast(chunk.data[col], varchar_chunk.data[col], rows, false);
 		}
 		// Tell the chunk how many rows it has. If we don't, we write 0 rows.
-		varchar_chunk.SetCardinality(rows);
+		varchar_chunk.SetChildCardinality(rows);
 
 		writer.WriteChunk(varchar_chunk, write_state);
 		varchar_chunk.Reset();
@@ -194,7 +194,7 @@ static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffere
 
 	// create an appender on the existing context/database
 	// is responsible for writing the actual rows in the table
-	Appender appender(con, table_name);
+	Appender appender(con, Identifier(table_name));
 
 	ColumnDataScanState scan_state;
 	buffered.InitializeScan(scan_state);
