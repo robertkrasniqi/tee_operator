@@ -27,13 +27,7 @@ vector<ColumnBinding> LogicalTee::GetColumnBindings() {
 }
 
 void LogicalTee::ResolveTypes() {
-	types = types_output;
-	if (!projected_input.empty()) {
-		D_ASSERT(children.size() == 1);
-		for (auto col : projected_input) {
-			types.push_back(children[0]->types[col]);
-		}
-	}
+		types = children[0]->types;
 }
 
 PhysicalOperator &LogicalTee::CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) {
