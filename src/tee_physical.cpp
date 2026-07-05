@@ -131,7 +131,7 @@ static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered,
 	CSVWriterState write_state(context,
 	                           4096ULL * 8ULL); // in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
 	// initialize writer
-	CSVWriter writer(options, fs, path_testing, FileCompressionType::UNCOMPRESSED, false);
+	CSVWriter writer(options, fs, path_testing, FileCompressionType::UNCOMPRESSED);
 
 	// force writing header and prefix
 	writer.Initialize(true);
