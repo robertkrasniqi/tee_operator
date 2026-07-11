@@ -5,6 +5,7 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/column_binding.hpp"
 #include "duckdb/common/projection_index.hpp"
+#include "duckdb/planner/subquery/flatten_dependent_join.hpp"
 
 namespace duckdb {
 
@@ -22,6 +23,11 @@ public:
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override;
 
 	vector<ColumnBinding> GetColumnBindings() override;
+
+	// Correlation hook
+	vector<ColumnBinding> PushdownDependentJoin(FlattenDependentJoins &flattener, unique_ptr<LogicalOperator> &plan,
+	                                            bool propagate_null_values,
+	                                            vector<ColumnBinding> column_bindings) override;
 
 	string GetExtensionName() const override {
 		return "logical_tee";

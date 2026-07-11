@@ -50,24 +50,6 @@ public:
 	string table_name;
 };
 
-struct TeeBindData : public FunctionData {
-	TeeBindData(vector<string> names_p, vector<LogicalType> types_p, named_parameter_map_t tee_named_parameter_p)
-	    : names(std::move(names_p)), types(std::move(types_p)), tee_named_parameters(std::move(tee_named_parameter_p)) {
-	}
-
-	vector<string> names;
-	vector<LogicalType> types;
-	named_parameter_map_t tee_named_parameters;
-
-	unique_ptr<FunctionData> Copy() const override {
-		return make_uniq<TeeBindData>(names, types, tee_named_parameters);
-	}
-	bool Equals(const FunctionData &other_p) const override {
-		auto &other = other_p.Cast<TeeBindData>();
-		return names == other.names && types == other.types && tee_named_parameters == other.tee_named_parameters;
-	}
-};
-
 class TeeExtension : public Extension {
 public:
 	void Load(ExtensionLoader &loader) override;

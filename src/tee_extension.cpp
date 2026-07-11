@@ -2,59 +2,25 @@
 #include "tee_logical.hpp"
 #include "tee_physical.hpp"
 #include "tee_parser.hpp"
-#include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/parser/parser_extension.hpp"
-#include "duckdb/planner/operator/logical_get.hpp"
 
 namespace duckdb {
 
-// DuckDB Binder validates during query planning that every table-in-out function
-// has an actual in_out_function
-static OperatorResultType TeeDummyInOut(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
-                                        DataChunk &output) {
-	throw InternalException("TeeDummyInOut called - Should not happen");
-}
+static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
+                                                   TableIndex bind_index, vector<string> &return_names) {
+	auto names = IdentifiersToStrings(input.input_table_names);
+	return_names = names;
 
-static unique_ptr<FunctionData> TeeBind(ClientContext &context, TableFunctionBindInput &input,
-                                        vector<LogicalType> &return_types, vector<string> &names) {
-	return_types = input.input_table_types;
-	names = IdentifiersToStrings(input.input_table_names);
-	return make_uniq<TeeBindData>(names, return_types, input.named_parameters);
-}
+	auto logical_tee = make_uniq<LogicalTee>(bind_index, input.input_table_types, names, input.named_parameters);
 
-// DuckDB creates LogicalGet nodes which we replace recursively with tee nodes
-static void ReplaceTeeNodes(unique_ptr<LogicalOperator> &node) {
-	for (auto &child : node->children) {
-		ReplaceTeeNodes(child);
-	}
-	if (node->type != LogicalOperatorType::LOGICAL_GET) {
-		return;
-	}
-	auto &get = node->Cast<LogicalGet>();
-	if (get.function.name != "tee") {
-		return;
-	}
-	auto &bind_data = get.bind_data->Cast<TeeBindData>();
-	auto logical_tee =
-	    make_uniq<LogicalTee>(get.table_index, get.returned_types, IdentifiersToStrings(get.names), bind_data.tee_named_parameters);
+	logical_tee->children.push_back(std::move(*input.input_plan));
 
-	logical_tee->projected_input = get.projected_input;
-
-	for (auto &child : get.children) {
-		logical_tee->children.push_back(std::move(child));
-	}
-
-	node = std::move(logical_tee);
-}
-
-// Extension Optimizer - Gets called after DuckDB optimizer
-static void TeeOptimize(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
-	ReplaceTeeNodes(plan);
+	return std::move(logical_tee);
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
-	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, TeeBind);
-	tee_function.in_out_function = TeeDummyInOut;
+	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, nullptr);
+	tee_function.bind_operator = TeeBindOperator;
 	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
@@ -64,10 +30,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
-
-	OptimizerExtension tee_optimizer;
-	tee_optimizer.optimize_function = TeeOptimize;
-	OptimizerExtension::Register(config, std::move(tee_optimizer));
 
 	config.SetOptionByName("allow_parser_override_extension", Value("fallback"));
 

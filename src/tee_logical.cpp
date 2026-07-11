@@ -27,7 +27,30 @@ vector<ColumnBinding> LogicalTee::GetColumnBindings() {
 }
 
 void LogicalTee::ResolveTypes() {
-		types = children[0]->types;
+	types = children[0]->types;
+}
+
+vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &flattener,
+                                                        unique_ptr<LogicalOperator> &plan, bool propagate_null_values,
+                                                        vector<ColumnBinding> column_bindings) {
+	Printer::Print("Debug: LogicalTee::PushdownDependentJoin was called");
+	D_ASSERT(plan->children.size() == 1);
+
+	// push the dependent join into our only child
+	column_bindings = flattener.PushDownExtensionChild(plan, propagate_null_values, std::move(column_bindings), 0);
+
+	// pass the correlated columns through
+	auto child_bindings = children[0]->GetColumnBindings();
+	for (auto &binding : column_bindings) {
+		for (idx_t i = 0; i < child_bindings.size(); i++) {
+			if (child_bindings[i] == binding) {
+				projected_input.push_back(i);
+				break;
+			}
+		}
+	}
+	ResolveOperatorTypes();
+	return column_bindings;
 }
 
 PhysicalOperator &LogicalTee::CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) {
