@@ -116,9 +116,7 @@ void SetupPager(const string &out) {
 // writes the tee output into a CSV file into the passed path
 static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
                          const string &path) {
-	// write always in my local dir
-	string path_testing = "test_dir/csv_files_testing/" + path;
-	Printer::RawPrint(OutputStream::STREAM_STDOUT, "Write to: " + path_testing + "\n");
+	Printer::RawPrint(OutputStream::STREAM_STDOUT, "Write to: " + path + "\n");
 	FileSystem &fs = FileSystem::GetFileSystem(context);
 
 	// prepare options
@@ -131,7 +129,7 @@ static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered,
 	CSVWriterState write_state(context,
 	                           4096ULL * 8ULL); // in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
 	// initialize writer
-	CSVWriter writer(options, fs, path_testing, FileCompressionType::UNCOMPRESSED);
+	CSVWriter writer(options, fs, path, FileCompressionType::UNCOMPRESSED);
 
 	// force writing header and prefix
 	writer.Initialize(true);

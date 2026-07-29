@@ -29,6 +29,10 @@ public:
 	                                            bool propagate_null_values,
 	                                            vector<ColumnBinding> column_bindings) override;
 
+	bool RequiresAllColumns() const override {
+		return true;
+	}
+
 	string GetExtensionName() const override {
 		return "logical_tee";
 	}
