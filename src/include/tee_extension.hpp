@@ -12,8 +12,7 @@ public:
 	               idx_t all_col_count, const named_parameter_map_t &params)
 	    : buffered(context, vector<LogicalType>(types.begin(), types.begin() + all_col_count)), names(names),
 	      all_col_count(all_col_count), pager_flag(false), terminal_flag(true), symbol_flag(false), symbol(""),
-	      path_flag(false), path(""), table_name_flag(false), table_name("") {
-		
+	      path_flag(false), path(""), table_name_flag(false), table_name(""), max_rows(40) {
 		if (params.find("pager") != params.end()) {
 			pager_flag = params.at("pager").GetValue<bool>();
 		}
@@ -32,6 +31,19 @@ public:
 			table_name_flag = true;
 			table_name = params.at("table_name").GetValue<string>();
 		}
+		if (params.find("maxrows") != params.end()) {
+			auto rows = params.at("maxrows").GetValue<int64_t>();
+			if (rows < 0) {
+				throw InvalidInputException("Tee: maxrows cannot be negative, got maxrows = %d", rows);
+			}
+			// 0 means render everything
+			if (rows == 0) {
+				max_rows = NumericLimits<idx_t>::Maximum();
+			}
+			else {
+				max_rows = static_cast<idx_t>(rows);
+			}
+		}
 	}
 
 	ColumnDataCollection buffered;
@@ -48,6 +60,7 @@ public:
 	string path;
 	bool table_name_flag;
 	string table_name;
+	idx_t max_rows;
 };
 
 class TeeExtension : public Extension {

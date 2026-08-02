@@ -227,6 +227,7 @@ OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event 
 	ColumnDataCollectionWrapper render_buffer(tee_state.buffered);
 	ClientBoxRendererContext render_context(context);
 	BoxRendererConfig config;
+	config.max_rows = tee_state.max_rows;
 	BoxRenderer renderer(config);
 	string str_out = renderer.ToString(render_context, tee_state.names, render_buffer);
 
