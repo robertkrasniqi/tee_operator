@@ -13,7 +13,7 @@ public:
 
 	vector<string> names_output;
 	idx_t projected_input_count;
-	named_parameter_map_t tee_named_parameters;
+	TeeOptions options;
 
 	string GetName() const override {
 		return "physical_tee";

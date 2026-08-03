@@ -14,12 +14,12 @@ PhysicalTee::PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types_
                          named_parameter_map_t tee_named_parameters_p)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types_p), estimated_cardinality),
       names_output(std::move(names_p)), projected_input_count(projected_input_count_p),
-      tee_named_parameters(std::move(tee_named_parameters_p)) {
+      options(tee_named_parameters_p) {
 }
 
 unique_ptr<GlobalOperatorState> PhysicalTee::GetGlobalOperatorState(ClientContext &context) const {
 	idx_t original_col_count = types.size() - projected_input_count;
-	return make_uniq<TeeGlobalState>(context, types, names_output, original_col_count, tee_named_parameters);
+	return make_uniq<TeeGlobalState>(context, types, names_output, original_col_count, options);
 }
 
 OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
@@ -223,31 +223,32 @@ static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffere
 OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
                                                       OperatorFinalizeInput &input) const {
 	auto &tee_state = input.global_state.Cast<TeeGlobalState>();
+	auto &tee_options = tee_state.options;
 
 	ColumnDataCollectionWrapper render_buffer(tee_state.buffered);
 	ClientBoxRendererContext render_context(context);
 	BoxRendererConfig config;
-	config.max_rows = tee_state.max_rows;
+	config.max_rows = tee_options.max_rows;
 	BoxRenderer renderer(config);
 	string str_out = renderer.ToString(render_context, tee_state.names, render_buffer);
 
-	if (tee_state.pager_flag || tee_state.terminal_flag) {
-		if (tee_state.symbol_flag && !tee_state.pager_flag) {
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator; Symbol: " + tee_state.symbol + "\n");
-		} else if (!tee_state.pager_flag) {
+	if (tee_options.NeedsBuffer()) {
+		if (tee_options.symbol_flag && !tee_options.pager_flag) {
+			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator; Symbol: " + tee_options.symbol + "\n");
+		} else if (!tee_options.pager_flag) {
 			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator: \n");
 		}
-		if (tee_state.pager_flag) {
+		if (tee_options.pager_flag) {
 			SetupPager(str_out);
 		} else {
 			Printer::RawPrint(OutputStream::STREAM_STDOUT, str_out);
 		}
 	}
-	if (tee_state.path_flag) {
-		TeeCSVWriter(context, tee_state.buffered, tee_state.names, tee_state.path);
+	if (tee_options.path_flag) {
+		TeeCSVWriter(context, tee_state.buffered, tee_state.names, tee_options.path);
 	}
-	if (tee_state.table_name_flag) {
-		TeeTableWriter(context, tee_state.buffered, tee_state.names, types, tee_state.table_name);
+	if (tee_options.table_name_flag) {
+		TeeTableWriter(context, tee_state.buffered, tee_state.names, types, tee_options.table_name);
 	}
 
 	return OperatorFinalResultType::FINISHED;

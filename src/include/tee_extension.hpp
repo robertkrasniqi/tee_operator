@@ -6,13 +6,10 @@
 
 namespace duckdb {
 
-class TeeGlobalState : public GlobalOperatorState {
-public:
-	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types, const vector<string> &names,
-	               idx_t all_col_count, const named_parameter_map_t &params)
-	    : buffered(context, vector<LogicalType>(types.begin(), types.begin() + all_col_count)), names(names),
-	      all_col_count(all_col_count), pager_flag(false), terminal_flag(true), symbol_flag(false), symbol(""),
-	      path_flag(false), path(""), table_name_flag(false), table_name(""), max_rows(40) {
+// the named parameters of a tee call
+struct TeeOptions {
+	TeeOptions() = default;
+	explicit TeeOptions(const named_parameter_map_t &params) {
 		if (params.find("pager") != params.end()) {
 			pager_flag = params.at("pager").GetValue<bool>();
 		}
@@ -39,28 +36,47 @@ public:
 			// 0 means render everything
 			if (rows == 0) {
 				max_rows = NumericLimits<idx_t>::Maximum();
-			}
-			else {
+			} else {
 				max_rows = static_cast<idx_t>(rows);
 			}
 		}
+	}
+
+	bool NeedsBuffer() const {
+		return terminal_flag || pager_flag;
+	}
+
+	bool NeedsStream() const {
+		return path_flag || table_name_flag;
+	}
+
+	// named parameters
+	bool pager_flag = false;
+	bool terminal_flag = true;
+	bool symbol_flag = false;
+	string symbol;
+	bool path_flag = false;
+	string path;
+	bool table_name_flag = false;
+	string table_name;
+	// same default as DuckDB
+	idx_t max_rows = 40;
+};
+
+class TeeGlobalState : public GlobalOperatorState {
+public:
+	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types, const vector<string> &names,
+	               idx_t all_col_count, const TeeOptions &options)
+	    : buffered(context, vector<LogicalType>(types.begin(), types.begin() + all_col_count)), names(names),
+	      all_col_count(all_col_count), options(options) {
 	}
 
 	ColumnDataCollection buffered;
 	vector<string> names;
 	idx_t all_col_count;
 	mutex lock;
-
-	// named parameters
-	bool pager_flag;
-	bool terminal_flag;
-	bool symbol_flag;
-	string symbol;
-	bool path_flag;
-	string path;
-	bool table_name_flag;
-	string table_name;
-	idx_t max_rows;
+	// owned by the physical operator
+	const TeeOptions &options;
 };
 
 class TeeExtension : public Extension {
