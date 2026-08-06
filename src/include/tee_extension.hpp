@@ -63,20 +63,60 @@ struct TeeOptions {
 	idx_t max_rows = 40;
 };
 
-class TeeGlobalState : public GlobalOperatorState {
+class TeeLocalState;
+
+class TeeGlobalState : public ClientContextState {
 public:
-	TeeGlobalState(ClientContext &context, const vector<LogicalType> &types, const vector<string> &names,
-	               idx_t all_col_count, const TeeOptions &options)
-	    : buffered(context, vector<LogicalType>(types.begin(), types.begin() + all_col_count)), names(names),
-	      all_col_count(all_col_count), options(options) {
+	TeeGlobalState(ClientContext &context, const TeeOptions &options, const vector<string> &names,
+	               const vector<LogicalType> &types, string key);
+
+	void WriteChunk(ClientContext &context, DataChunk &chunk, TeeLocalState &l_state);
+	void Flush();
+	// Called by the ClientContext once the query is done
+	void QueryEnd(ClientContext &context, optional_ptr<ErrorData> error) override;
+
+	void AppendLocalToGlobalBuffer(ColumnDataCollection &local_buffer) {
+		lock_guard<mutex> guard(buffer_lock);
+		buffered->Combine(local_buffer);
 	}
 
-	ColumnDataCollection buffered;
-	vector<string> names;
-	idx_t all_col_count;
-	mutex lock;
-	// owned by the physical operator
-	const TeeOptions &options;
+	// only set when we buffer, read by OperatorFinalize
+	unique_ptr<ColumnDataCollection> buffered;
+
+private:
+	mutex buffer_lock;
+	unique_ptr<CSVWriter> csv_writer;
+	unique_ptr<Connection> con;
+	unique_ptr<Appender> appender;
+	mutex appender_lock;
+	// key we need to unregister the state in QueryEnd
+	string key;
+
+	void TeeInitializeCSVWriter(ClientContext &context, const TeeOptions &options, const vector<string> &names);
+	void TeeInitializeTableWriter(ClientContext &context, const TeeOptions &options, const vector<string> &names,
+	                              const vector<LogicalType> &types);
+};
+
+//!! State of a single thread
+class TeeLocalState : public OperatorState {
+public:
+	TeeLocalState(ClientContext &context, const TeeOptions &options, const vector<LogicalType> &tee_types,
+	              shared_ptr<TeeGlobalState> global_state);
+
+	shared_ptr<TeeGlobalState> global_state;
+	unique_ptr<ColumnDataCollection> local_buffer;
+	ColumnDataAppendState local_append_state;
+	unique_ptr<CSVWriterState> local_csv_state;
+	DataChunk varchar_chunk_csv;
+
+	void Finalize(const PhysicalOperator &op, ExecutionContext &context) override;
+
+	// Reusing states in recursive CTEs
+	bool SupportsReuse() const override {
+		return true;
+	}
+
+	void Reset() override;
 };
 
 class TeeExtension : public Extension {

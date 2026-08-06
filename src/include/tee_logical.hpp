@@ -33,6 +33,10 @@ public:
 		return true;
 	}
 
+	bool SupportSerialization() const override {
+		return false;
+	}
+
 	string GetExtensionName() const override {
 		return "logical_tee";
 	}

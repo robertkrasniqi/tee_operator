@@ -1,58 +1,15 @@
 #include "include/tee_physical.hpp"
+#include "duckdb/common/atomic.hpp"
 #include "duckdb/common/box_renderer.hpp"
 #include "duckdb/common/box_renderer_context.hpp"
 #include "duckdb/common/column_data_collection_render_interface.hpp"
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/printer.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/physical_operator_states.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_reader_options.hpp"
 
 namespace duckdb {
-
-PhysicalTee::PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types_p, vector<string> names_p,
-                         idx_t estimated_cardinality, idx_t projected_input_count_p,
-                         named_parameter_map_t tee_named_parameters_p)
-    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types_p), estimated_cardinality),
-      names_output(std::move(names_p)), projected_input_count(projected_input_count_p),
-      options(tee_named_parameters_p) {
-}
-
-unique_ptr<GlobalOperatorState> PhysicalTee::GetGlobalOperatorState(ClientContext &context) const {
-	idx_t original_col_count = types.size() - projected_input_count;
-	return make_uniq<TeeGlobalState>(context, types, names_output, original_col_count, options);
-}
-
-OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
-                                        GlobalOperatorState &global_state, OperatorState &state) const {
-	auto &tee_state = global_state.Cast<TeeGlobalState>();
-	idx_t original_col_count = tee_state.all_col_count;
-
-	// no correlation -> normal buffering
-	if (projected_input_count == 0) {
-		{
-			lock_guard<mutex> guard(tee_state.lock);
-			tee_state.buffered.Append(input);
-		}
-		chunk.Reference(input);
-		return OperatorResultType::NEED_MORE_INPUT;
-	}
-	// correlated case:
-	// we only want to display (and buffer) the original cols, but pass the full input (which includes projected_input)
-	{
-		lock_guard<mutex> guard(tee_state.lock);
-		// build a chunk that references only the first original columns
-		DataChunk original_chunk;
-		const vector<LogicalType> original_types(types.begin(), types.begin() + original_col_count);
-		original_chunk.InitializeEmpty(original_types);
-		for (idx_t i = 0; i < original_col_count; i++) {
-			original_chunk.data[i].Reference(input.data[i]);
-		}
-		original_chunk.SetChildCardinality(input.size());
-		tee_state.buffered.Append(original_chunk);
-	}
-	chunk.Reference(input);
-	return OperatorResultType::NEED_MORE_INPUT;
-}
 
 static string GetSystemPager() {
 	const char *duckdb_pager = getenv("DUCKDB_PAGER");
@@ -113,69 +70,145 @@ void SetupPager(const string &out) {
 	FinishPagerDisplay();
 }
 
-// writes the tee output into a CSV file into the passed path
-static void TeeCSVWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
-                         const string &path) {
-	Printer::RawPrint(OutputStream::STREAM_STDOUT, "Write to: " + path + "\n");
+PhysicalTee::PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types_p, vector<string> names_p,
+                         idx_t estimated_cardinality, idx_t projected_input_count_p,
+                         named_parameter_map_t tee_named_parameters_p)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types_p), estimated_cardinality),
+      names_output(std::move(names_p)), projected_input_count(projected_input_count_p), options(tee_named_parameters_p),
+      tee_types(types.begin(), types.begin() + (types.size() - projected_input_count_p)) {
+}
+
+// For EXPLAIN output
+InsertionOrderPreservingMap<string> PhysicalTee::ParamsToString() const {
+	InsertionOrderPreservingMap<string> out;
+
+	if (options.terminal_flag) {
+		out["terminal"] = "active";
+	}
+	if (options.pager_flag) {
+		out["pager"] = "active";
+	}
+	if (options.symbol_flag) {
+		out["symbol"] = options.symbol;
+	}
+	if (options.path_flag) {
+		out["path"] = options.path;
+	}
+	if (options.table_name_flag) {
+		out["table_name"] = options.table_name;
+	}
+	// maxrows is always shown
+	if (options.max_rows == NumericLimits<idx_t>::Maximum()) {
+		out["maxrows"] = "all";
+	} else {
+		out["maxrows"] = to_string(options.max_rows);
+	}
+	SetEstimatedCardinality(out, estimated_cardinality);
+	return out;
+}
+
+TeeLocalState::TeeLocalState(ClientContext &context, const TeeOptions &options, const vector<LogicalType> &tee_types,
+                             shared_ptr<TeeGlobalState> global_state_p)
+    : global_state(std::move(global_state_p)) {
+	if (options.NeedsBuffer()) {
+		local_buffer = make_uniq<ColumnDataCollection>(context, tee_types);
+		local_buffer->InitializeAppend(local_append_state);
+	}
+	if (options.path_flag) {
+		vector<LogicalType> varchar_types(tee_types.size(), LogicalType::VARCHAR);
+		varchar_chunk_csv.Initialize(context, varchar_types);
+		// in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
+		local_csv_state = make_uniq<CSVWriterState>(context, 4096ULL * 8ULL);
+	}
+}
+
+void TeeLocalState::Finalize(const PhysicalOperator &op, ExecutionContext &context) {
+	if (local_buffer) {
+		global_state->AppendLocalToGlobalBuffer(*local_buffer);
+	}
+}
+
+void TeeLocalState::Reset() {
+	if (local_buffer) {
+		local_buffer->Reset();
+		local_buffer->InitializeAppend(local_append_state);
+	}
+	if (local_csv_state) {
+		local_csv_state->Reset();
+	}
+}
+
+unique_ptr<OperatorState> PhysicalTee::GetOperatorState(ExecutionContext &context) const {
+	string key = to_string(reinterpret_cast<uintptr_t>(this));
+	auto global_state = context.client.registered_state->GetOrCreate<TeeGlobalState>(key, context.client, options,
+	                                                                                 names_output, tee_types, key);
+	return make_uniq<TeeLocalState>(context.client, options, tee_types, std::move(global_state));
+}
+
+OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
+                                        GlobalOperatorState &global_state, OperatorState &state) const {
+	auto &l_state = state.Cast<TeeLocalState>();
+
+	DataChunk projected_chunk;
+	optional_ptr<DataChunk> tee_chunk = input;
+	if (projected_input_count > 0) {
+		projected_chunk.InitializeEmpty(tee_types);
+		for (idx_t i = 0; i < tee_types.size(); i++) {
+			projected_chunk.data[i].Reference(input.data[i]);
+		}
+		projected_chunk.SetChildCardinality(input.size());
+		tee_chunk = projected_chunk;
+	}
+
+	// Buffer
+	if (l_state.local_buffer) {
+		l_state.local_buffer->Append(l_state.local_append_state, *tee_chunk);
+	}
+	// Stream
+	if (options.NeedsStream()) {
+		l_state.global_state->WriteChunk(context.client, *tee_chunk, l_state);
+	}
+	chunk.Reference(input);
+	return OperatorResultType::NEED_MORE_INPUT;
+}
+
+// Opens every streamed target once, they stay open until QueryEnd
+TeeGlobalState::TeeGlobalState(ClientContext &context, const TeeOptions &options, const vector<string> &names,
+                               const vector<LogicalType> &types, string key_p)
+    : key(std::move(key_p)) {
+	if (options.NeedsBuffer()) {
+		buffered = make_uniq<ColumnDataCollection>(context, types);
+	}
+	if (options.path_flag) {
+		TeeInitializeCSVWriter(context, options, names);
+	}
+	if (options.table_name_flag) {
+		TeeInitializeTableWriter(context, options, names, types);
+	}
+	Printer::Flush(OutputStream::STREAM_STDOUT);
+}
+
+void TeeGlobalState::TeeInitializeCSVWriter(ClientContext &context, const TeeOptions &options,
+                                            const vector<string> &names) {
+	Printer::Print(OutputStream::STREAM_STDOUT, "Write to: " + options.path);
 	FileSystem &fs = FileSystem::GetFileSystem(context);
 
 	// prepare options
-	CSVReaderOptions options;
-	options.name_list = names;
+	CSVReaderOptions csv_options;
+	csv_options.name_list = names;
 	// set own names
-	options.columns_set = true;
-	options.force_quote.resize(names.size(), false);
+	csv_options.columns_set = true;
+	csv_options.force_quote.resize(names.size(), false);
 
-	CSVWriterState write_state(context,
-	                           4096ULL * 8ULL); // in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
-	// initialize writer
-	CSVWriter writer(options, fs, path, FileCompressionType::UNCOMPRESSED);
-
+	csv_writer = make_uniq<CSVWriter>(csv_options, fs, options.path, FileCompressionType::UNCOMPRESSED);
 	// force writing header and prefix
-	writer.Initialize(true);
-
-	// scan/initialize ColumnDataCollection with our buffered data
-	// this is the place where our column data lives
-	ColumnDataScanState scan_state;
-	buffered.InitializeScan(scan_state);
-
-	// initialize chunk
-	DataChunk chunk;
-	buffered.InitializeScanChunk(scan_state, chunk);
-
-	// as long as we have data, write it
-	while (buffered.Scan(scan_state, chunk)) {
-		// CSVWriter expects varchar columns. For that, we cast our current chunk into a new chunk
-		// which has only varchar columns.
-		DataChunk varchar_chunk;
-		vector<LogicalType> varchar_vector;
-		varchar_vector.reserve(chunk.ColumnCount());
-		for (idx_t i = 0; i < chunk.ColumnCount(); ++i) {
-			varchar_vector.emplace_back(LogicalType::VARCHAR);
-		}
-		// initialize chunk with the same client context
-		varchar_chunk.Initialize(context, varchar_vector);
-		idx_t rows = chunk.size();
-		for (idx_t col = 0; col < chunk.ColumnCount(); ++col) {
-			VectorOperations::DefaultCast(chunk.data[col], varchar_chunk.data[col], rows, false);
-		}
-		// Tell the chunk how many rows it has. If we don't, we write 0 rows.
-		varchar_chunk.SetChildCardinality(rows);
-
-		writer.WriteChunk(varchar_chunk, write_state);
-		varchar_chunk.Reset();
-		chunk.Reset();
-	}
-
-	writer.Flush(write_state);
-	writer.Close();
+	csv_writer->Initialize(true);
 }
 
-// write the tee output into a table with the passed name
-static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffered, const vector<string> &names,
-                           const vector<LogicalType> &types, const string &table_name) {
+void TeeGlobalState::TeeInitializeTableWriter(ClientContext &context, const TeeOptions &options,
+                                              const vector<string> &names, const vector<LogicalType> &types) {
 	auto &db = context.db->GetDatabase(context);
-	Connection con(db);
+	con = make_uniq<Connection>(db);
 
 	// copy the name and type schema of the current subquery for the new table
 	string name_types = "";
@@ -185,71 +218,87 @@ static void TeeTableWriter(ClientContext &context, ColumnDataCollection &buffere
 			name_types += ", ";
 		};
 	}
+	con->Query("CREATE TABLE IF NOT EXISTS " + options.table_name + "(" + name_types + ")");
 
-	string sql_statement = "CREATE TABLE IF NOT EXISTS " + table_name + "(" + name_types + ")";
-
-	con.Query(sql_statement);
-
-	// create an appender on the existing context/database
+	// create an appender on the existing context
 	// is responsible for writing the actual rows in the table
-	Appender appender(con, Identifier(table_name));
+	appender = make_uniq<Appender>(*con, Identifier(options.table_name));
+	Printer::Print(OutputStream::STREAM_STDOUT,
+	               "Table " + options.table_name + " created and added to the current attached database. ");
+}
 
-	ColumnDataScanState scan_state;
-	buffered.InitializeScan(scan_state);
-
-	DataChunk chunk;
-	buffered.InitializeScanChunk(scan_state, chunk);
-
-	while (buffered.Scan(scan_state, chunk)) {
-		idx_t rows = chunk.size();
-		for (idx_t cur_row = 0; cur_row < rows; cur_row++) {
-			appender.BeginRow();
-			for (idx_t cur_col = 0; cur_col < chunk.ColumnCount(); cur_col++) {
-				// read value from chunk
-				Value value = chunk.GetValue(cur_col, cur_row);
-				// write value to appender
-				appender.Append(value);
-			}
-			appender.EndRow();
-		}
-		chunk.Reset();
+void TeeGlobalState::QueryEnd(ClientContext &context, optional_ptr<ErrorData> error) {
+	if (appender) {
+		appender->Close();
+		appender.reset();
 	}
-	// write everything from the buffer before closing
-	appender.Close();
-	string out = "Table " + table_name + " created and added to the current attached database. \n";
-	Printer::RawPrint(OutputStream::STREAM_STDOUT, out);
+	if (csv_writer) {
+		csv_writer->Close();
+		csv_writer.reset();
+	}
+
+	context.registered_state->Remove(key);
+}
+
+void TeeGlobalState::WriteChunk(ClientContext &context, DataChunk &chunk, TeeLocalState &l_state) {
+	idx_t rows = chunk.size();
+	if (rows == 0) {
+		return;
+	}
+	if (csv_writer) {
+		auto &varchar_chunk = l_state.varchar_chunk_csv;
+		varchar_chunk.Reset();
+		for (idx_t col = 0; col < chunk.ColumnCount(); col++) {
+			VectorOperations::Cast(context, chunk.data[col], varchar_chunk.data[col], rows);
+		}
+		varchar_chunk.SetChildCardinality(rows);
+
+		csv_writer->WriteChunk(varchar_chunk, *l_state.local_csv_state);
+		csv_writer->Flush(*l_state.local_csv_state);
+	}
+
+	if (appender) {
+		lock_guard<mutex> guard(appender_lock);
+		appender->AppendDataChunk(chunk);
+	}
+}
+
+void TeeGlobalState::Flush() {
+	if (appender) {
+		lock_guard<mutex> guard(appender_lock);
+		appender->Flush();
+	}
 }
 
 OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
                                                       OperatorFinalizeInput &input) const {
-	auto &tee_state = input.global_state.Cast<TeeGlobalState>();
-	auto &tee_options = tee_state.options;
+	auto tee_state = context.registered_state->Get<TeeGlobalState>(StateKey());
 
-	ColumnDataCollectionWrapper render_buffer(tee_state.buffered);
+	tee_state->Flush();
+
+	if (!options.NeedsBuffer()) {
+		return OperatorFinalResultType::FINISHED;
+	}
+
+	ColumnDataCollectionWrapper render_buffer(*tee_state->buffered);
 	ClientBoxRendererContext render_context(context);
 	BoxRendererConfig config;
-	config.max_rows = tee_options.max_rows;
+	config.max_rows = options.max_rows;
 	BoxRenderer renderer(config);
-	string str_out = renderer.ToString(render_context, tee_state.names, render_buffer);
+	string str_out = renderer.ToString(render_context, names_output, render_buffer);
 
-	if (tee_options.NeedsBuffer()) {
-		if (tee_options.symbol_flag && !tee_options.pager_flag) {
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator; Symbol: " + tee_options.symbol + "\n");
-		} else if (!tee_options.pager_flag) {
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, "Tee Operator: \n");
-		}
-		if (tee_options.pager_flag) {
-			SetupPager(str_out);
-		} else {
-			Printer::RawPrint(OutputStream::STREAM_STDOUT, str_out);
-		}
+	if (options.symbol_flag && !options.pager_flag) {
+		Printer::Print(OutputStream::STREAM_STDOUT, "Tee Operator; Symbol: " + options.symbol);
+	} else if (!options.pager_flag) {
+		Printer::Print(OutputStream::STREAM_STDOUT, "Tee Operator: ");
 	}
-	if (tee_options.path_flag) {
-		TeeCSVWriter(context, tee_state.buffered, tee_state.names, tee_options.path);
+	if (options.pager_flag) {
+		SetupPager(str_out);
+	} else {
+		Printer::RawPrint(OutputStream::STREAM_STDOUT, str_out);
 	}
-	if (tee_options.table_name_flag) {
-		TeeTableWriter(context, tee_state.buffered, tee_state.names, types, tee_options.table_name);
-	}
+
+	Printer::Flush(OutputStream::STREAM_STDOUT);
 
 	return OperatorFinalResultType::FINISHED;
 }
