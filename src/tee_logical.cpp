@@ -1,5 +1,6 @@
 #include "include/tee_logical.hpp"
 #include "include/tee_physical.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
 
 namespace duckdb {
 
@@ -16,18 +17,24 @@ vector<ColumnBinding> LogicalTee::GetColumnBindings() {
 	for (idx_t i = 0; i < types_output.size(); i++) {
 		column_bindings.emplace_back(table_index, ProjectionIndex(i));
 	}
-	if (!projected_input.empty()) {
-		D_ASSERT(children.size() == 1);
-		auto child_column_bindings = children[0]->GetColumnBindings();
-		for (const auto col : projected_input) {
-			column_bindings.emplace_back(child_column_bindings[col]);
-		}
+	for (const auto &binding : projected_input) {
+		column_bindings.emplace_back(binding);
 	}
 	return column_bindings;
 }
 
 void LogicalTee::ResolveTypes() {
 	types = children[0]->types;
+
+	auto child_bindings = children[0]->GetColumnBindings();
+	auto &child_types = children[0]->types;
+
+	expressions.clear();
+	expressions.reserve(child_bindings.size());
+	// Each child column gets a BoundColumnRefExpression
+	for (idx_t i = 0; i < child_bindings.size(); i++) {
+		expressions.push_back(make_uniq<BoundColumnRefExpression>(child_types[i], child_bindings[i]));
+	}
 }
 
 vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &flattener,
@@ -43,7 +50,7 @@ vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &f
 	for (auto &binding : column_bindings) {
 		for (idx_t i = 0; i < child_bindings.size(); i++) {
 			if (child_bindings[i] == binding) {
-				projected_input.push_back(i);
+				projected_input.push_back(binding);
 				break;
 			}
 		}
