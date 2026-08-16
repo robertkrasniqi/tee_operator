@@ -68,7 +68,7 @@ class TeeLocalState;
 class TeeGlobalState : public ClientContextState {
 public:
 	TeeGlobalState(ClientContext &context, const TeeOptions &options, const vector<string> &names,
-	               const vector<LogicalType> &types, string key);
+	               const vector<LogicalType> &types, string key, bool recursive_iteration);
 
 	void WriteChunk(ClientContext &context, DataChunk &chunk, TeeLocalState &l_state);
 	void Flush();
@@ -80,10 +80,28 @@ public:
 		buffered->Combine(local_buffer);
 	}
 
+	void ResetBuffer() {
+		lock_guard<mutex> guard(buffer_lock);
+		buffered->Reset();
+	}
+
+	void NextIteration() {
+		++iteration;
+	}
+	idx_t CurrentIteration() const {
+		return iteration;
+	}
+
+	bool RecursiveIteration() const {
+		return recursive_iteration;
+	}
+
 	// only set when we buffer, read by OperatorFinalize
 	unique_ptr<ColumnDataCollection> buffered;
 
 private:
+	bool recursive_iteration;
+	atomic<idx_t> iteration {1};
 	mutex buffer_lock;
 	unique_ptr<CSVWriter> csv_writer;
 	unique_ptr<Connection> con;
@@ -108,6 +126,8 @@ public:
 	ColumnDataAppendState local_append_state;
 	unique_ptr<CSVWriterState> local_csv_state;
 	DataChunk varchar_chunk_csv;
+	// only used inside recursive CTEs, carries the iteration in column 0
+	DataChunk chunk_with_iteration_column;
 
 	void Finalize(const PhysicalOperator &op, ExecutionContext &context) override;
 

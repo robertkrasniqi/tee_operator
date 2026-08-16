@@ -114,11 +114,20 @@ TeeLocalState::TeeLocalState(ClientContext &context, const TeeOptions &options, 
 		local_buffer = make_uniq<ColumnDataCollection>(context, tee_types);
 		local_buffer->InitializeAppend(local_append_state);
 	}
+	// inside a recursive CTE, targets get an extra column for the iteration step
+	auto iteration_column = global_state->RecursiveIteration() ? 1 : 0;
+
 	if (options.path_flag) {
-		vector<LogicalType> varchar_types(tee_types.size(), LogicalType::VARCHAR);
+		vector<LogicalType> varchar_types(tee_types.size() + iteration_column, LogicalType::VARCHAR);
 		varchar_chunk_csv.Initialize(context, varchar_types);
 		// in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
 		local_csv_state = make_uniq<CSVWriterState>(context, 4096ULL * 8ULL);
+	}
+	if (options.table_name_flag && global_state->RecursiveIteration()) {
+		vector<LogicalType> table_types;
+		table_types.push_back(LogicalType::BIGINT);
+		table_types.insert(table_types.end(), tee_types.begin(), tee_types.end());
+		chunk_with_iteration_column.Initialize(context, table_types);
 	}
 }
 
@@ -139,9 +148,9 @@ void TeeLocalState::Reset() {
 }
 
 unique_ptr<OperatorState> PhysicalTee::GetOperatorState(ExecutionContext &context) const {
-	string key = to_string(reinterpret_cast<uintptr_t>(this));
-	auto global_state = context.client.registered_state->GetOrCreate<TeeGlobalState>(key, context.client, options,
-	                                                                                 names_output, tee_types, key);
+	auto key = StateKey();
+	auto global_state = context.client.registered_state->GetOrCreate<TeeGlobalState>(
+	    key, context.client, options, names_output, tee_types, key, is_recursive_cte);
 	return make_uniq<TeeLocalState>(context.client, options, tee_types, std::move(global_state));
 }
 
@@ -174,8 +183,8 @@ OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &in
 
 // Opens every streamed target once, they stay open until QueryEnd
 TeeGlobalState::TeeGlobalState(ClientContext &context, const TeeOptions &options, const vector<string> &names,
-                               const vector<LogicalType> &types, string key_p)
-    : key(std::move(key_p)) {
+                               const vector<LogicalType> &types, string key_p, bool recursive_iteration_p)
+    : recursive_iteration(recursive_iteration_p), key(std::move(key_p)) {
 	if (options.NeedsBuffer()) {
 		buffered = make_uniq<ColumnDataCollection>(context, types);
 	}
@@ -193,12 +202,20 @@ void TeeGlobalState::TeeInitializeCSVWriter(ClientContext &context, const TeeOpt
 	Printer::Print(OutputStream::STREAM_STDOUT, "Write to: " + options.path);
 	FileSystem &fs = FileSystem::GetFileSystem(context);
 
+	vector<string> csv_column_names;
+	csv_column_names.reserve(names.size() + 1);
+	// insert iteration column in recursive CTEs
+	if (recursive_iteration) {
+		csv_column_names.push_back("iteration");
+	}
+	csv_column_names.insert(csv_column_names.end(), names.begin(), names.end());
+
 	// prepare options
 	CSVReaderOptions csv_options;
-	csv_options.name_list = names;
+	csv_options.name_list = csv_column_names;
 	// set own names
 	csv_options.columns_set = true;
-	csv_options.force_quote.resize(names.size(), false);
+	csv_options.force_quote.resize(csv_column_names.size(), false);
 
 	csv_writer = make_uniq<CSVWriter>(csv_options, fs, options.path, FileCompressionType::UNCOMPRESSED);
 	// force writing header and prefix
@@ -211,12 +228,12 @@ void TeeGlobalState::TeeInitializeTableWriter(ClientContext &context, const TeeO
 	con = make_uniq<Connection>(db);
 
 	// copy the name and type schema of the current subquery for the new table
-	string name_types = "";
+	string name_types = recursive_iteration ? " iteration BIGINT" : "";
 	for (idx_t i = 0; i < names.size(); i++) {
-		name_types += " " + names[i] + " " + types[i].ToString();
-		if (i + 1 < names.size()) {
+		if (!name_types.empty()) {
 			name_types += ", ";
-		};
+		}
+		name_types += " " + names[i] + " " + types[i].ToString();
 	}
 	con->Query("CREATE TABLE IF NOT EXISTS " + options.table_name + "(" + name_types + ")");
 
@@ -245,11 +262,17 @@ void TeeGlobalState::WriteChunk(ClientContext &context, DataChunk &chunk, TeeLoc
 	if (rows == 0) {
 		return;
 	}
+	idx_t offset = recursive_iteration ? 1 : 0;
+	idx_t step = CurrentIteration();
+
 	if (csv_writer) {
 		auto &varchar_chunk = l_state.varchar_chunk_csv;
 		varchar_chunk.Reset();
+		if (recursive_iteration) {
+			varchar_chunk.data[0].Reference(Value(to_string(step)), count_t(rows));
+		}
 		for (idx_t col = 0; col < chunk.ColumnCount(); col++) {
-			VectorOperations::Cast(context, chunk.data[col], varchar_chunk.data[col], rows);
+			VectorOperations::Cast(context, chunk.data[col], varchar_chunk.data[col + offset], rows);
 		}
 		varchar_chunk.SetChildCardinality(rows);
 
@@ -258,8 +281,21 @@ void TeeGlobalState::WriteChunk(ClientContext &context, DataChunk &chunk, TeeLoc
 	}
 
 	if (appender) {
+		if (!recursive_iteration) {
+			lock_guard<mutex> guard(appender_lock);
+			appender->AppendDataChunk(chunk);
+			return;
+		}
+		auto &table_chunk = l_state.chunk_with_iteration_column;
+		table_chunk.Reset();
+		table_chunk.data[0].Reference(Value::BIGINT(NumericCast<int64_t>(step)), count_t(rows));
+		for (idx_t col = 0; col < chunk.ColumnCount(); col++) {
+			table_chunk.data[col + 1].Reference(chunk.data[col]);
+		}
+		table_chunk.SetChildCardinality(rows);
+
 		lock_guard<mutex> guard(appender_lock);
-		appender->AppendDataChunk(chunk);
+		appender->AppendDataChunk(table_chunk);
 	}
 }
 
@@ -277,6 +313,7 @@ OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event 
 	tee_state->Flush();
 
 	if (!options.NeedsBuffer()) {
+		tee_state->NextIteration();
 		return OperatorFinalResultType::FINISHED;
 	}
 
@@ -299,6 +336,9 @@ OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event 
 	}
 
 	Printer::Flush(OutputStream::STREAM_STDOUT);
+
+	tee_state->ResetBuffer();
+	tee_state->NextIteration();
 
 	return OperatorFinalResultType::FINISHED;
 }

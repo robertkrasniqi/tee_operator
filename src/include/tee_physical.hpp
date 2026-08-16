@@ -2,6 +2,7 @@
 
 #include "tee_extension.hpp"
 #include "duckdb/execution/physical_operator.hpp"
+#include "duckdb/parallel/meta_pipeline.hpp"
 
 namespace duckdb {
 
@@ -36,7 +37,16 @@ public:
 	OperatorFinalResultType OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
 	                                         OperatorFinalizeInput &input) const override;
 
+	// find out whether we have a recursive CTE
+	void BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) override {
+		is_recursive_cte = meta_pipeline.HasRecursiveCTE();
+		// pass back to base class
+		PhysicalOperator::BuildPipelines(current, meta_pipeline);
+	}
+
 private:
+	bool is_recursive_cte = false;
+
 	string StateKey() const {
 		return to_string(reinterpret_cast<uintptr_t>(this));
 	}
