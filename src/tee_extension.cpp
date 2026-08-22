@@ -7,9 +7,9 @@
 namespace duckdb {
 
 static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
-                                                   TableIndex bind_index, vector<string> &return_names) {
+                                                   TableIndex bind_index, vector<Identifier> &return_names) {
 	auto names = IdentifiersToStrings(input.input_table_names);
-	return_names = names;
+	return_names = input.input_table_names;
 
 	auto logical_tee = make_uniq<LogicalTee>(bind_index, input.input_table_types, names, input.named_parameters);
 

@@ -26,8 +26,8 @@ public:
 
 	// Correlation hook
 	vector<ColumnBinding> PushdownDependentJoin(FlattenDependentJoins &flattener, unique_ptr<LogicalOperator> &plan,
-	                                            bool propagate_null_values,
-	                                            vector<ColumnBinding> column_bindings) override;
+	                                            bool propagate_null_values, vector<ColumnBinding> column_bindings,
+	                                            BindingReplacementGraph &replacement_graph) override;
 
 	bool RequiresAllColumns() const override {
 		return true;

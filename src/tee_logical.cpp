@@ -39,11 +39,13 @@ void LogicalTee::ResolveTypes() {
 
 vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &flattener,
                                                         unique_ptr<LogicalOperator> &plan, bool propagate_null_values,
-                                                        vector<ColumnBinding> column_bindings) {
+                                                        vector<ColumnBinding> column_bindings,
+                                                        BindingReplacementGraph &replacement_graph) {
 	D_ASSERT(plan->children.size() == 1);
 
 	// push the dependent join into our only child
-	column_bindings = PushDownDependentJoinChild(flattener, plan, propagate_null_values, std::move(column_bindings), 0);
+	column_bindings = PushDownDependentJoinChild(flattener, plan, propagate_null_values, std::move(column_bindings),
+	                                             replacement_graph, 0);
 
 	// pass the correlated columns through
 	auto child_bindings = children[0]->GetColumnBindings();
