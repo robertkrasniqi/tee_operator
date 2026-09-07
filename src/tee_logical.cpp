@@ -1,40 +1,15 @@
 #include "include/tee_logical.hpp"
 #include "include/tee_physical.hpp"
-#include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include "duckdb/planner/operator/logical_projection.hpp"
 
 namespace duckdb {
 
-LogicalTee::LogicalTee(TableIndex table_idx_p, vector<LogicalType> types_output_p, vector<string> names_output_p,
-                       named_parameter_map_t tee_named_parameters_p)
-    : table_index(table_idx_p), types_output(std::move(types_output_p)), names_output(std::move(names_output_p)),
-      tee_named_parameters(std::move(tee_named_parameters_p)) {
-}
-
-vector<ColumnBinding> LogicalTee::GetColumnBindings() {
-	// column_bindings should contain our columns + the projected children columns
-	vector<ColumnBinding> column_bindings;
-	column_bindings.reserve(types_output.size() + projected_input.size());
-	for (idx_t i = 0; i < types_output.size(); i++) {
-		column_bindings.emplace_back(table_index, ProjectionIndex(i));
-	}
-	for (const auto &binding : projected_input) {
-		column_bindings.emplace_back(binding);
-	}
-	return column_bindings;
+LogicalTee::LogicalTee(TableIndex table_idx_p, named_parameter_map_t tee_named_parameters_p)
+    : table_index(table_idx_p), tee_named_parameters(std::move(tee_named_parameters_p)) {
 }
 
 void LogicalTee::ResolveTypes() {
 	types = children[0]->types;
-
-	auto child_bindings = children[0]->GetColumnBindings();
-	auto &child_types = children[0]->types;
-
-	expressions.clear();
-	expressions.reserve(child_bindings.size());
-	// Each child column gets a BoundColumnRefExpression
-	for (idx_t i = 0; i < child_bindings.size(); i++) {
-		expressions.push_back(make_uniq<BoundColumnRefExpression>(child_types[i], child_bindings[i]));
-	}
 }
 
 vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &flattener,
@@ -43,31 +18,34 @@ vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &f
                                                         BindingReplacementGraph &replacement_graph) {
 	D_ASSERT(plan->children.size() == 1);
 
-	// push the dependent join into our only child
-	column_bindings = PushDownDependentJoinChild(flattener, plan, propagate_null_values, std::move(column_bindings),
-	                                             replacement_graph, 0);
-
-	// pass the correlated columns through
-	auto child_bindings = children[0]->GetColumnBindings();
-	for (auto &binding : column_bindings) {
-		for (idx_t i = 0; i < child_bindings.size(); i++) {
-			if (child_bindings[i] == binding) {
-				projected_input.push_back(binding);
-				break;
-			}
-		}
-	}
+	// hand the correlated columns to the projection below us
+	auto result = PushDownDependentJoinChild(flattener, plan, propagate_null_values, std::move(column_bindings),
+	                                         replacement_graph, 0);
 	ResolveOperatorTypes();
-	return column_bindings;
+	return result;
 }
 
 PhysicalOperator &LogicalTee::CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) {
 	D_ASSERT(children.size() == 1);
 
+	vector<string> names;
+	names.reserve(types.size());
+	if (children[0]->type == LogicalOperatorType::LOGICAL_PROJECTION) {
+		// read the column names from the projection below us
+		for (const auto &expr : children[0]->expressions) {
+			names.push_back(expr->GetAlias().GetIdentifierName());
+		}
+	} else {
+		// if our projection was replaced somehow, we still have to provide column names
+		for (idx_t i = 0; i < types.size(); i++) {
+			names.push_back("col" + to_string(i));
+		}
+	}
+	D_ASSERT(names.size() == types.size());
+
 	auto &child = planner.CreatePlan(*children[0]);
 
-	auto &physical_tee = planner.Make<PhysicalTee>(types, names_output, estimated_cardinality,
-	                                               static_cast<idx_t>(projected_input.size()), tee_named_parameters);
+	auto &physical_tee = planner.Make<PhysicalTee>(types, names, estimated_cardinality, tee_named_parameters);
 	physical_tee.children.push_back(child);
 
 	return physical_tee;

@@ -1,37 +1,29 @@
 #pragma once
 
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
-#include "duckdb/execution/physical_plan_generator.hpp"
-#include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/column_binding.hpp"
-#include "duckdb/common/projection_index.hpp"
 #include "duckdb/planner/subquery/flatten_dependent_join.hpp"
 
 namespace duckdb {
 
 class LogicalTee : public LogicalExtensionOperator {
 public:
-	LogicalTee(TableIndex table_index, vector<LogicalType> output_types, vector<string> output_names,
-	           named_parameter_map_t tee_named_parameters);
+	LogicalTee(TableIndex table_index, named_parameter_map_t tee_named_parameters);
 
 	TableIndex table_index;
-	vector<LogicalType> types_output;
-	vector<string> names_output;
-	vector<ColumnBinding> projected_input;
 	named_parameter_map_t tee_named_parameters;
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override;
 
-	vector<ColumnBinding> GetColumnBindings() override;
+	// passes childs through unchanged
+	vector<ColumnBinding> GetColumnBindings() override {
+		return children[0]->GetColumnBindings();
+	}
 
 	// Correlation hook
 	vector<ColumnBinding> PushdownDependentJoin(FlattenDependentJoins &flattener, unique_ptr<LogicalOperator> &plan,
 	                                            bool propagate_null_values, vector<ColumnBinding> column_bindings,
 	                                            BindingReplacementGraph &replacement_graph) override;
-
-	bool RequiresAllColumns() const override {
-		return true;
-	}
 
 	bool SupportSerialization() const override {
 		return false;

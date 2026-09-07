@@ -3,17 +3,33 @@
 #include "tee_physical.hpp"
 #include "tee_parser.hpp"
 #include "duckdb/parser/parser_extension.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include "duckdb/planner/operator/logical_projection.hpp"
 
 namespace duckdb {
 
 static unique_ptr<LogicalOperator> TeeBindOperator(ClientContext &context, TableFunctionBindInput &input,
-                                                   TableIndex bind_index, vector<Identifier> &return_names) {
-	auto names = IdentifiersToStrings(input.input_table_names);
+                                                   TableIndex table_bind_index, vector<Identifier> &return_names) {
+
 	return_names = input.input_table_names;
 
-	auto logical_tee = make_uniq<LogicalTee>(bind_index, input.input_table_types, names, input.named_parameters);
+	auto &child = *input.input_plan;
+	auto child_bindings = child->GetColumnBindings();
+	D_ASSERT(child_bindings.size() == input.input_table_types.size());
 
-	logical_tee->children.push_back(std::move(*input.input_plan));
+	vector<unique_ptr<Expression>> select_list;
+	select_list.reserve(child_bindings.size());
+	for (idx_t i = 0; i < child_bindings.size(); i++) {
+		auto expr = make_uniq<BoundColumnRefExpression>(input.input_table_types[i], child_bindings[i]);
+		expr->SetAlias(input.input_table_names[i]);
+		select_list.push_back(std::move(expr));
+	}
+
+	auto projection = make_uniq<LogicalProjection>(table_bind_index, std::move(select_list));
+	projection->children.push_back(std::move(child));
+
+	auto logical_tee = make_uniq<LogicalTee>(table_bind_index, input.named_parameters);
+	logical_tee->children.push_back(std::move(projection));
 
 	return std::move(logical_tee);
 }

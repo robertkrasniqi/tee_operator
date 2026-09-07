@@ -71,11 +71,9 @@ void SetupPager(const string &out) {
 }
 
 PhysicalTee::PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types_p, vector<string> names_p,
-                         idx_t estimated_cardinality, idx_t projected_input_count_p,
-                         named_parameter_map_t tee_named_parameters_p)
+                         idx_t estimated_cardinality, named_parameter_map_t tee_named_parameters_p)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types_p), estimated_cardinality),
-      names_output(std::move(names_p)), projected_input_count(projected_input_count_p), options(tee_named_parameters_p),
-      tee_types(types.begin(), types.begin() + (types.size() - projected_input_count_p)) {
+      names_output(std::move(names_p)), options(tee_named_parameters_p) {
 }
 
 // For EXPLAIN output
@@ -115,7 +113,7 @@ TeeLocalState::TeeLocalState(ClientContext &context, const TeeOptions &options, 
 		local_buffer->InitializeAppend(local_append_state);
 	}
 	// inside a recursive CTE, targets get an extra column for the iteration step
-	auto iteration_column = global_state->RecursiveIteration() ? 1 : 0;
+	int const iteration_column = global_state->RecursiveIteration() ? 1 : 0;
 
 	if (options.path_flag) {
 		vector<LogicalType> varchar_types(tee_types.size() + iteration_column, LogicalType::VARCHAR);
@@ -139,49 +137,33 @@ void TeeLocalState::Finalize(const PhysicalOperator &op, ExecutionContext &conte
 
 void TeeLocalState::Reset() {
 	if (local_buffer) {
-		local_buffer->Reset();
 		local_buffer->InitializeAppend(local_append_state);
-	}
-	if (local_csv_state) {
-		local_csv_state->Reset();
 	}
 }
 
 unique_ptr<OperatorState> PhysicalTee::GetOperatorState(ExecutionContext &context) const {
 	auto key = StateKey();
 	auto global_state = context.client.registered_state->GetOrCreate<TeeGlobalState>(
-	    key, context.client, options, names_output, tee_types, key, is_recursive_cte);
-	return make_uniq<TeeLocalState>(context.client, options, tee_types, std::move(global_state));
+	    key, context.client, options, names_output, types, key, is_recursive_cte);
+	return make_uniq<TeeLocalState>(context.client, options, types, std::move(global_state));
 }
 
 OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
                                         GlobalOperatorState &global_state, OperatorState &state) const {
 	auto &l_state = state.Cast<TeeLocalState>();
 
-	DataChunk projected_chunk;
-	optional_ptr<DataChunk> tee_chunk = input;
-	if (projected_input_count > 0) {
-		projected_chunk.InitializeEmpty(tee_types);
-		for (idx_t i = 0; i < tee_types.size(); i++) {
-			projected_chunk.data[i].Reference(input.data[i]);
-		}
-		projected_chunk.SetChildCardinality(input.size());
-		tee_chunk = projected_chunk;
-	}
-
 	// Buffer
 	if (l_state.local_buffer) {
-		l_state.local_buffer->Append(l_state.local_append_state, *tee_chunk);
+		l_state.local_buffer->Append(l_state.local_append_state, input);
 	}
 	// Stream
 	if (options.NeedsStream()) {
-		l_state.global_state->WriteChunk(context.client, *tee_chunk, l_state);
+		l_state.global_state->WriteChunk(context.client, input, l_state);
 	}
 	chunk.Reference(input);
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 
-// Opens every streamed target once, they stay open until QueryEnd
 TeeGlobalState::TeeGlobalState(ClientContext &context, const TeeOptions &options, const vector<string> &names,
                                const vector<LogicalType> &types, string key_p, bool recursive_iteration_p)
     : recursive_iteration(recursive_iteration_p), key(std::move(key_p)) {
@@ -194,7 +176,6 @@ TeeGlobalState::TeeGlobalState(ClientContext &context, const TeeOptions &options
 	if (options.table_name_flag) {
 		TeeInitializeTableWriter(context, options, names, types);
 	}
-	Printer::Flush(OutputStream::STREAM_STDOUT);
 }
 
 void TeeGlobalState::TeeInitializeCSVWriter(ClientContext &context, const TeeOptions &options,
@@ -280,6 +261,7 @@ void TeeGlobalState::WriteChunk(ClientContext &context, DataChunk &chunk, TeeLoc
 		csv_writer->Flush(*l_state.local_csv_state);
 	}
 
+	// Write chunk to table
 	if (appender) {
 		if (!recursive_iteration) {
 			lock_guard<mutex> guard(appender_lock);
@@ -306,6 +288,7 @@ void TeeGlobalState::Flush() {
 	}
 }
 
+// called at the end of a pipeline
 OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
                                                       OperatorFinalizeInput &input) const {
 	auto tee_state = context.registered_state->Get<TeeGlobalState>(StateKey());
