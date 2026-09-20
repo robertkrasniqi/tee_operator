@@ -112,7 +112,7 @@ public:
 
 private:
 	bool recursive_iteration;
-	atomic<idx_t> iteration {1};
+	atomic<idx_t> iteration {0};
 	mutex buffer_lock;
 	unique_ptr<CSVWriter> csv_writer;
 	unique_ptr<Connection> con;
