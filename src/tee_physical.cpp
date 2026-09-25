@@ -188,13 +188,15 @@ void TeeGlobalState::TeeInitializeCSVWriter(ClientContext &context, const TeeOpt
 	Printer::Print(OutputStream::STREAM_STDOUT, "Write to: " + options.path);
 	FileSystem &fs = FileSystem::GetFileSystem(context);
 
-	vector<string> csv_column_names;
+	vector<Identifier> csv_column_names;
 	csv_column_names.reserve(names.size() + 1);
 	// insert iteration column in recursive CTEs
 	if (recursive_iteration) {
 		csv_column_names.push_back("iteration");
 	}
-	csv_column_names.insert(csv_column_names.end(), names.begin(), names.end());
+	for (const auto &name : names) {
+		csv_column_names.push_back(Identifier(name));
+	}
 
 	// prepare options
 	CSVReaderOptions csv_options;

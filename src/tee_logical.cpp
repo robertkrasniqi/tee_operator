@@ -12,19 +12,6 @@ void LogicalTee::ResolveTypes() {
 	types = children[0]->types;
 }
 
-vector<ColumnBinding> LogicalTee::PushdownDependentJoin(FlattenDependentJoins &flattener,
-                                                        unique_ptr<LogicalOperator> &plan, bool propagate_null_values,
-                                                        vector<ColumnBinding> column_bindings,
-                                                        BindingReplacementGraph &replacement_graph) {
-	D_ASSERT(plan->children.size() == 1);
-
-	// hand the correlated columns to the projection below us
-	auto result = PushDownDependentJoinChild(flattener, plan, propagate_null_values, std::move(column_bindings),
-	                                         replacement_graph, 0);
-	ResolveOperatorTypes();
-	return result;
-}
-
 PhysicalOperator &LogicalTee::CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) {
 	D_ASSERT(children.size() == 1);
 
