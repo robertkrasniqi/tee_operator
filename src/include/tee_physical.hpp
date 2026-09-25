@@ -24,6 +24,11 @@ public:
 	OperatorResultType Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
 	                           GlobalOperatorState &global_state, OperatorState &state) const override;
 
+	// TBD - Check impact
+	bool ParallelOperator() const override {
+		return !options.path_flag;
+	}
+
 	bool RequiresOperatorFinalize() const override {
 		return true;
 	}

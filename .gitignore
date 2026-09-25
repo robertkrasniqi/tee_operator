@@ -11,3 +11,13 @@ test_notes.txt
 /notes_v2.md
 /queries.sql
 /test_tee.sql
+/scripts/benchmark.py
+/demo.db
+/demo.db.wal
+/sql_files/demo.sql
+/demo_bench.db
+/fib.csv
+/notes/notes_v2.md
+/scripts/test.py
+/test/sql/test_tee_full.sql
+/.cache

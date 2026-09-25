@@ -5,7 +5,6 @@
 #include "duckdb/common/column_data_collection_render_interface.hpp"
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/printer.hpp"
-#include "duckdb/common/sql_identifier.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/physical_operator_states.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_reader_options.hpp"
@@ -96,9 +95,6 @@ InsertionOrderPreservingMap<string> PhysicalTee::ParamsToString() const {
 	if (options.table_name_flag) {
 		out["table_name"] = options.table_name;
 	}
-	if (options.force_materialize) {
-		out["force_materialize"] = "active";
-	}
 	// maxrows is always shown
 	if (options.max_rows == NumericLimits<idx_t>::Maximum()) {
 		out["maxrows"] = "all";
@@ -122,7 +118,6 @@ TeeLocalState::TeeLocalState(ClientContext &context, const TeeOptions &options, 
 	if (options.path_flag) {
 		vector<LogicalType> varchar_types(tee_types.size() + iteration_column, LogicalType::VARCHAR);
 		varchar_chunk_csv.Initialize(context, varchar_types);
-		// one write state per thread: the CSVWriter is shared, but only its flush takes a lock
 		// in csv_writer.hpp they used: idx_t flush_size = 4096ULL * 8ULL;
 		local_csv_state = make_uniq<CSVWriterState>(context, 4096ULL * 8ULL);
 	}
@@ -161,8 +156,8 @@ OperatorResultType PhysicalTee::Execute(ExecutionContext &context, DataChunk &in
 	if (l_state.local_buffer) {
 		l_state.local_buffer->Append(l_state.local_append_state, input);
 	}
-	// Stream - with force_materialize we wait and write everything in OperatorFinalize
-	if (options.NeedsStream() && !options.force_materialize) {
+	// Stream
+	if (options.NeedsStream()) {
 		l_state.global_state->WriteChunk(context.client, input, l_state);
 	}
 	chunk.Reference(input);
@@ -305,18 +300,9 @@ OperatorFinalResultType PhysicalTee::OperatorFinalize(Pipeline &pipeline, Event 
                                                       OperatorFinalizeInput &input) const {
 	auto tee_state = context.registered_state->Get<TeeGlobalState>(StateKey());
 
-	// nothing was written during execution, so write the whole buffer now
-	if (options.force_materialize && options.NeedsStream()) {
-		TeeLocalState write_state(context, options, types, tee_state);
-		for (auto &chunk : tee_state->buffered->Chunks()) {
-			tee_state->WriteChunk(context, chunk, write_state);
-		}
-	}
-
 	tee_state->Flush();
 
-	if (!options.NeedsRender()) {
-		tee_state->ResetBuffer();
+	if (!options.NeedsBuffer()) {
 		tee_state->NextIteration();
 		return OperatorFinalResultType::FINISHED;
 	}

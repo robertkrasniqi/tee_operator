@@ -29,9 +29,6 @@ struct TeeOptions {
 			table_name_flag = true;
 			table_name = params.at("table_name").GetValue<string>();
 		}
-		if (params.find("force_materialize") != params.end()) {
-			force_materialize = params.at("force_materialize").GetValue<bool>();
-		}
 		if (params.find("maxrows") != params.end()) {
 			auto rows = params.at("maxrows").GetValue<int64_t>();
 			if (rows < 0) {
@@ -46,12 +43,8 @@ struct TeeOptions {
 		}
 	}
 
-	bool NeedsRender() const {
-		return terminal_flag || pager_flag;
-	}
-
 	bool NeedsBuffer() const {
-		return NeedsRender() || force_materialize;
+		return terminal_flag || pager_flag;
 	}
 
 	bool NeedsStream() const {
@@ -67,7 +60,6 @@ struct TeeOptions {
 	string path;
 	bool table_name_flag = false;
 	string table_name;
-	bool force_materialize = false;
 	// same default as DuckDB
 	idx_t max_rows = 40;
 };

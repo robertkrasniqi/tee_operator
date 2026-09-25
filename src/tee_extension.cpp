@@ -43,7 +43,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	tee_function.named_parameters["table_name"] = LogicalType::VARCHAR;
 	tee_function.named_parameters["pager"] = LogicalType::BOOLEAN;
 	tee_function.named_parameters["maxrows"] = LogicalType::BIGINT;
-	tee_function.named_parameters["force_materialize"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(tee_function);
 
 	auto &db = loader.GetDatabaseInstance();
