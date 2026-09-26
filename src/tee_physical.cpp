@@ -1,12 +1,11 @@
-#include "include/tee_physical.hpp"
-#include "duckdb/common/atomic.hpp"
+#include "tee_physical.hpp"
 #include "duckdb/common/box_renderer.hpp"
 #include "duckdb/common/box_renderer_context.hpp"
 #include "duckdb/common/column_data_collection_render_interface.hpp"
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/printer.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
-#include "duckdb/execution/physical_operator_states.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_reader_options.hpp"
 
 namespace duckdb {
@@ -35,26 +34,24 @@ static string GetSystemPager() {
 #endif
 }
 
-void StartPagerDisplay() {
+static void StartPagerDisplay() {
 #if !defined(_WIN32) && !defined(WIN32)
 	// disable sigpipe trap while displaying the pager
 	signal(SIGPIPE, SIG_IGN);
 #endif
 }
 
-void FinishPagerDisplay() {
+static void FinishPagerDisplay() {
 #if !defined(_WIN32) && !defined(WIN32)
 	// enable sigpipe trap again after finishing the display
 	signal(SIGPIPE, SIG_DFL);
 #endif
 }
 
-void SetupPager(const string &out) {
+static void SetupPager(const string &out) {
 	string sys_pager = GetSystemPager();
 #if defined(_WIN32) || defined(WIN32)
-	if (win_utf8_mode) {
-		SetConsoleCP(CP_UTF8);
-	}
+	SetConsoleCP(CP_UTF8);
 #endif
 	StartPagerDisplay();
 	// open and write into pager

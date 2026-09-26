@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.14)
 
 # Set extension name here
 set(TARGET_NAME tee)
@@ -11,7 +11,6 @@ include_directories(src/include)
 
 add_subdirectory(src)
 
-set(EXTENSION_SOURCES ${ALL_OBJECT_FILES})
 set(EXTENSION_SOURCES ${ALL_OBJECT_FILES})
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
