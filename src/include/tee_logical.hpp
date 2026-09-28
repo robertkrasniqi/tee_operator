@@ -50,8 +50,8 @@ public:
 		return children[0]->GetColumnBindings();
 	}
 
-	bool SupportsDecorrelation() const override {
-		return true;
+	DecorrelationMode GetDecorrelationMode() const override {
+		return DecorrelationMode::SINGLE_CHILD_PASSTHROUGH;
 	}
 
 	// Create a projection (below Tee) with the input columns
