@@ -5,6 +5,7 @@ import shutil
 
 DUCKDB = os.path.expanduser("~/tee_operator/build/debug/duckdb")
 
+
 @pytest.fixture
 def workdir(tmp_path):
     base_dir = tmp_path / "csv_files_testing"
@@ -28,12 +29,7 @@ def test_basic_query(workdir):
           SELECT * FROM tee((SELECT 42 AS 'a'), path = 'out.csv');
           """
 
-    result = subprocess.run(
-        [DUCKDB, "-c", sql],
-        text=True,
-        capture_output=True,
-        check=True
-    )
+    result = subprocess.run([DUCKDB, "-c", sql], text=True, capture_output=True, check=True)
 
     print("STDOUT:", result.stdout)
     print("STDERR: \n", result.stderr)
@@ -54,6 +50,7 @@ def test_basic_query(workdir):
     first_row = lines[1].split(",")
     assert first_row[0] == "42"
 
+
 def test_large_query(workdir):
     row_count = 4097
 
@@ -67,12 +64,7 @@ def test_large_query(workdir):
     FROM range({row_count}) AS _(a)), path = 'out.csv');
     """
 
-    result = subprocess.run(
-        [DUCKDB, "-c", sql],
-        text=True,
-        capture_output=True,
-        check=True
-    )
+    result = subprocess.run([DUCKDB, "-c", sql], text=True, capture_output=True, check=True)
 
     print("STDOUT:", result.stdout)
     print("STDERR:", result.stderr)

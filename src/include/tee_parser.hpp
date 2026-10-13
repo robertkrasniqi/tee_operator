@@ -6,6 +6,6 @@ namespace duckdb {
 class TeeParserExtension {
 public:
 	static ParserOverrideResult ParserOverrideFunction(ParserExtensionInfo *info, const string &query,
-													   ParserOptions &options);
+	                                                   ParserOptions &options);
 };
 } // namespace duckdb

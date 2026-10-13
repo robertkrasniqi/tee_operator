@@ -5,6 +5,7 @@ import shutil
 
 DUCKDB = os.path.expanduser("~/tee_operator/build/debug/duckdb")
 
+
 @pytest.fixture
 def workdir(tmp_path):
     base_dir = tmp_path / "table_name_testing"
@@ -22,13 +23,10 @@ def workdir(tmp_path):
     os.chdir(old_cwd)
     shutil.rmtree(base_dir, ignore_errors=True)
 
+
 def run_duckdb(sql, db_path):
-    return subprocess.run(
-        [DUCKDB, db_path, "-c", sql],
-        text=True,
-        capture_output=True,
-        check=True
-    )
+    return subprocess.run([DUCKDB, db_path, "-c", sql], text=True, capture_output=True, check=True)
+
 
 def test_small_table(workdir):
     db_path = workdir / "temp.db"
@@ -56,13 +54,14 @@ def test_small_table(workdir):
 
     assert result.returncode == 0
 
+
 def test_big_table(workdir):
     db_path = workdir / "temp.db"
     out_csv = workdir / "check.csv"
 
     row_count = 987654
 
-    sql =  f"""
+    sql = f"""
             SELECT * FROM tee((
                   SELECT
                   a,
@@ -73,7 +72,6 @@ def test_big_table(workdir):
             """
 
     result = run_duckdb(sql, db_path)
-
 
     sql_check = f"""
                 COPY (SELECT * FROM temp_table) TO '{out_csv}';
