@@ -525,3 +525,19 @@ Tee Operator:
 
 ```
 `maxrows = 0` renders everything.
+
+
+### use tee with a single pair of parentheses
+If no named parameters are used, it is possible to use `tee` with just a pair of parentheses. To do this, this setting must be set within the session:
+
+```sql
+SET allow_parser_override_extension = 'fallback';
+```
+
+Example:
+```sql
+SELECT * FROM tee(FROM t);
+```
+
+
+
