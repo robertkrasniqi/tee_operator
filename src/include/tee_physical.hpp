@@ -83,7 +83,7 @@ public:
 class PhysicalTee : public PhysicalOperator {
 public:
 	PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types, vector<string> names,
-	            idx_t estimated_cardinality, const named_parameter_map_t &tee_named_parameters);
+	            idx_t estimated_cardinality, const named_argument_map_t &tee_named_parameters);
 
 	vector<string> names_output;
 	TeeOptions tee_options;

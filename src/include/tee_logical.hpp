@@ -13,11 +13,11 @@ namespace duckdb {
 //! Carries the named parameters and passes the child through unchanged
 class LogicalTee : public LogicalExtensionOperator {
 public:
-	explicit LogicalTee(named_parameter_map_t tee_named_parameters_p)
+	explicit LogicalTee(named_argument_map_t tee_named_parameters_p)
 	    : tee_named_parameters(std::move(tee_named_parameters_p)) {
 	}
 
-	named_parameter_map_t tee_named_parameters;
+	named_argument_map_t tee_named_parameters;
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
 		D_ASSERT(children.size() == 1);

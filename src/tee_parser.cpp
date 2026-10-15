@@ -1,10 +1,7 @@
 #include "include/tee_parser.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
-#include <fmt/core.h>
 #include <string>
-#include "format"
-#include <iostream>
 
 namespace duckdb {
 
@@ -120,7 +117,9 @@ ParserOverrideResult TeeParserExtension::ParserOverrideFunction(ParserExtensionI
 
 	string modified_query = RewriteTee(query);
 
-	Parser parser;
+	ParserOptions reparse_options = options;
+	reparse_options.parser_override_setting = AllowParserOverride::DEFAULT_OVERRIDE;
+	Parser parser(reparse_options);
 	parser.ParseQuery(modified_query);
 
 	vector<unique_ptr<SQLStatement>> result_statements;

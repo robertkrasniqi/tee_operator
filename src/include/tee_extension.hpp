@@ -7,7 +7,7 @@ namespace duckdb {
 //! Holds the named parameters of a Tee call
 struct TeeOptions {
 	TeeOptions() = default;
-	explicit TeeOptions(const named_parameter_map_t &params) {
+	explicit TeeOptions(const named_argument_map_t &params) {
 		if (params.find("pager") != params.end()) {
 			has_pager = params.at("pager").GetValue<bool>();
 		}

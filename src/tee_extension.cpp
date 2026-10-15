@@ -9,18 +9,24 @@ namespace duckdb {
 static void LoadInternal(ExtensionLoader &loader) {
 	TableFunction tee_function("tee", {LogicalType::TABLE}, nullptr, nullptr);
 	tee_function.bind_operator = LogicalTee::TeeBindOperator;
-	tee_function.named_parameters["path"] = LogicalType::VARCHAR;
-	tee_function.named_parameters["symbol"] = LogicalType::VARCHAR;
-	tee_function.named_parameters["terminal"] = LogicalType::BOOLEAN;
-	tee_function.named_parameters["table_name"] = LogicalType::VARCHAR;
-	tee_function.named_parameters["pager"] = LogicalType::BOOLEAN;
-	tee_function.named_parameters["maxrows"] = LogicalType::BIGINT;
+	tee_function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
+		options.Add("path", LogicalType::VARCHAR)
+		    .Add("symbol", LogicalType::VARCHAR)
+		    .Add("terminal", LogicalType::BOOLEAN)
+		    .Add("table_name", LogicalType::VARCHAR)
+		    .Add("pager", LogicalType::BOOLEAN)
+		    .Add("maxrows", LogicalType::BIGINT)
+		    .Alias("max_rows");
+	});
 	loader.RegisterFunction(tee_function);
 
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
 
-	config.SetOptionByName("allow_parser_override_extension", Value("fallback"));
+	// parser is disabled by default, if a user want to use it he can set:
+	// SET allow_parser_override_extension = 'fallback';
+
+	// config.SetOptionByName("allow_parser_override_extension", Value("fallback"));
 
 	ParserExtension parser_extension;
 	parser_extension.parser_override = TeeParserExtension::ParserOverrideFunction;

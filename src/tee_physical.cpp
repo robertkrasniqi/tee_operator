@@ -12,7 +12,7 @@
 namespace duckdb {
 
 PhysicalTee::PhysicalTee(PhysicalPlan &physical_plan, vector<LogicalType> types_p, vector<string> names_p,
-                         idx_t estimated_cardinality, const named_parameter_map_t &tee_named_parameters_p)
+                         idx_t estimated_cardinality, const named_argument_map_t &tee_named_parameters_p)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, std::move(types_p), estimated_cardinality),
       names_output(std::move(names_p)), tee_options(tee_named_parameters_p) {
 }
