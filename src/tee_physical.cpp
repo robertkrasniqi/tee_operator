@@ -5,6 +5,8 @@
 #include "duckdb/common/csv_writer.hpp"
 #include "duckdb/common/printer.hpp"
 #include "duckdb/common/sql_identifier.hpp"
+
+#include "duckdb/main/database_manager.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/operator/csv_scanner/csv_reader_options.hpp"
@@ -158,12 +160,20 @@ void TeeGlobalState::TeeInitializeTableWriter(ClientContext &context, const TeeO
 		// Quote column names
 		columns.push_back(SQLIdentifier::ToString(names[i]) + " " + types[i].ToString());
 	}
+	auto database = DatabaseManager::GetDefaultDatabase(*con->context);
+	// check if there is already a table with the same name
+	const bool table_exists =
+	    con->TableInfo(database, Identifier::DefaultSchema(), Identifier(options.table_name)) != nullptr;
+
 	const auto create = con->Query("CREATE TABLE IF NOT EXISTS " + SQLIdentifier::ToString(options.table_name) + "(" +
 	                               StringUtil::Join(columns, ", ") + ")");
-
-	appender = make_uniq<Appender>(*con, Identifier(options.table_name));
-	Printer::Print(OutputStream::STREAM_STDOUT,
-	               "Table " + options.table_name + " created and added to the current attached database. ");
+	appender = make_uniq<Appender>(*con, database, Identifier::DefaultSchema(), Identifier(options.table_name));
+	if (table_exists) {
+		Printer::Print(OutputStream::STREAM_STDOUT, "Write to table: " + options.table_name);
+	} else {
+		Printer::Print(OutputStream::STREAM_STDOUT,
+		               "Table " + options.table_name + " created and added to the current attached database. ");
+	}
 }
 
 void TeeGlobalState::WriteChunkToCSV(ClientContext &context, DataChunk &chunk, TeeLocalState &l_state) const {
